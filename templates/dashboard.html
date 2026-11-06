@@ -181,11 +181,20 @@
       <section class="panel cost-panel">
         <div class="section-heading">
           <div>
-            <p class="eyebrow">Past 24 hours</p>
-            <h2>Top circuits by energy</h2>
+            <p class="eyebrow" id="usage-period-label">Last 24 hours</p>
+            <h2>Top 20 circuits by energy</h2>
           </div>
-          <p>Estimated variable cost combines the matching ComEd price with bill-derived delivery and other usage-based charges. Fixed charges are excluded.</p>
+          <div class="usage-period-control">
+            <label for="usage-period">Time period</label>
+            <select id="usage-period">
+              <option value="24h">Last 24 hours · live</option>
+              <option value="7d">Last 7 days</option>
+              <option value="30d">Last 30 days</option>
+              <option value="365d">Last 365 days</option>
+            </select>
+          </div>
         </div>
+        <p class="cost-explanation">Estimated variable cost combines the matching ComEd price with bill-derived delivery and other usage-based charges. Fixed charges are excluded. The 24-hour view refreshes every 15 seconds; longer periods load when selected.</p>
         <div class="cost-table-wrap">
           <table class="cost-table">
             <thead>

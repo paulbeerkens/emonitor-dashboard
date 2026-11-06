@@ -57,6 +57,21 @@ def create_app(
       app.logger.warning("Could not read dashboard data: %s", error)
       return jsonify({"error": str(error)}), 503
 
+  @app.get("/api/circuit-usage")
+  def circuit_usage():
+    period = request.args.get("period", "24h")
+    try:
+      return jsonify(database.circuit_usage(
+        period,
+        live_pricing=prices.snapshot(),
+        variable_addon_cents_per_kwh=variable_addon,
+      ))
+    except ValueError as error:
+      return jsonify({"error": str(error)}), 400
+    except (FileNotFoundError, sqlite3.DatabaseError) as error:
+      app.logger.warning("Could not read circuit usage: %s", error)
+      return jsonify({"error": str(error)}), 503
+
   return app
 
 

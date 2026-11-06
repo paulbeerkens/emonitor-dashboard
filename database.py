@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import json
+import re
 import sqlite3
 from datetime import datetime, timedelta, timezone
 from pathlib import Path
@@ -243,6 +244,132 @@ class DashboardDatabase:
       "circuit_breakdown": all_circuits,
     }
     return pricing, usage
+
+  @staticmethod
+  def _usage_period(period: str, now: datetime) -> tuple[datetime, datetime, str]:
+    rolling_periods = {
+      "24h": (timedelta(hours=24), "Last 24 hours"),
+      "7d": (timedelta(days=7), "Last 7 days"),
+      "30d": (timedelta(days=30), "Last 30 days"),
+      "365d": (timedelta(days=365), "Last 365 days"),
+    }
+    if period in rolling_periods:
+      duration, label = rolling_periods[period]
+      return now - duration, now, label
+    if not re.fullmatch(r"\d{4}-\d{2}", period):
+      raise ValueError("Unknown circuit-usage period")
+    year, month = (int(value) for value in period.split("-"))
+    if not 1 <= month <= 12:
+      raise ValueError("Unknown circuit-usage period")
+    local_start = datetime(year, month, 1, tzinfo=CHICAGO)
+    local_end = (
+      datetime(year + 1, 1, 1, tzinfo=CHICAGO)
+      if month == 12 else datetime(year, month + 1, 1, tzinfo=CHICAGO)
+    )
+    return (
+      local_start.astimezone(timezone.utc),
+      local_end.astimezone(timezone.utc),
+      local_start.strftime("%B %Y"),
+    )
+
+  @staticmethod
+  def _available_months(
+    connection: sqlite3.Connection,
+  ) -> list[dict[str, str]]:
+    rows = connection.execute(
+      "SELECT DISTINCT substr(period_start, 1, 7) AS month "
+      "FROM channel_usage WHERE period_start IS NOT NULL ORDER BY month DESC"
+    )
+    months = []
+    for row in rows:
+      value = row["month"]
+      if value and re.fullmatch(r"\d{4}-\d{2}", value):
+        parsed = datetime.strptime(value, "%Y-%m")
+        months.append({"value": value, "label": parsed.strftime("%B %Y")})
+    return months
+
+  def circuit_usage(
+    self,
+    period: str = "24h",
+    *,
+    live_pricing: dict[str, Any] | None = None,
+    variable_addon_cents_per_kwh: float = 7.791438,
+  ) -> dict[str, Any]:
+    """Return the 20 highest-energy branch circuits for a selected period."""
+    now = datetime.now(timezone.utc)
+    start, end, label = self._usage_period(period, now)
+    with self._connect() as connection:
+      metadata = self._metadata(connection)
+      if not self._table_exists(connection, "channel_usage"):
+        return {
+          "period": period, "period_label": label, "circuits": [],
+          "priced_energy_percent": 0, "available_months": [],
+        }
+
+      hourly_prices: dict[int, float] = {}
+      if self._table_exists(connection, "comed_hourly_prices"):
+        for row in connection.execute(
+          "SELECT hour_start, price_cents_per_kwh FROM comed_hourly_prices"
+        ):
+          hourly_prices[self._hour_start_ms(
+            datetime.fromisoformat(row["hour_start"])
+          )] = float(row["price_cents_per_kwh"])
+      if live_pricing:
+        hourly_prices.update({
+          int(row["hour_start_ms"]): float(row["price_cents_per_kwh"])
+          for row in live_pricing.get("hourly_prices", [])
+        })
+
+      totals: dict[int, dict[str, Any]] = {}
+      for row in connection.execute(
+        "SELECT id, period_start, energy_wh FROM channel_usage "
+        "WHERE period_end>? AND period_start<? ORDER BY period_start, id",
+        (start.isoformat(), end.isoformat()),
+      ):
+        channel_id = row["id"]
+        name = metadata.get(channel_id, f"Channel {channel_id}")
+        if name.casefold() in SUMMARY_NAMES or name.casefold().startswith("channel "):
+          continue
+        energy_kwh = float(row["energy_wh"]) / 1000
+        market_price = hourly_prices.get(self._hour_start_ms(
+          datetime.fromisoformat(row["period_start"])
+        ))
+        total = totals.setdefault(channel_id, {
+          "channel_id": channel_id,
+          "channel_name": name,
+          "energy_kwh": 0.0,
+          "priced_energy_kwh": 0.0,
+          "cost_dollars": 0.0,
+        })
+        total["energy_kwh"] += energy_kwh
+        if market_price is not None:
+          total["priced_energy_kwh"] += energy_kwh
+          total["cost_dollars"] += (
+            energy_kwh * (market_price + variable_addon_cents_per_kwh) / 100
+          )
+
+      all_rows = sorted(
+        totals.values(), key=lambda item: item["energy_kwh"], reverse=True
+      )
+      total_energy = sum(item["energy_kwh"] for item in all_rows)
+      priced_energy = sum(item["priced_energy_kwh"] for item in all_rows)
+      for item in all_rows:
+        if item["priced_energy_kwh"] == 0:
+          item["cost_dollars"] = None
+        item["energy_kwh"] = round(item["energy_kwh"], 4)
+        item.pop("priced_energy_kwh")
+
+      return {
+        "period": period,
+        "period_label": label,
+        "period_start_ms": round(start.timestamp() * 1000),
+        "period_end_ms": round(end.timestamp() * 1000),
+        "circuits": all_rows[:20],
+        "priced_energy_percent": round(
+          priced_energy / total_energy * 100, 1
+        ) if total_energy else 0,
+        "available_months": self._available_months(connection),
+      }
 
   def _data_quality(
     self,

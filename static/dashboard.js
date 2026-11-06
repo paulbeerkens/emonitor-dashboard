@@ -1,5 +1,6 @@
 const REFRESH_MS = 15_000;
 let selectedCircuitId = null;
+let selectedUsagePeriod = "24h";
 let lastPayload = null;
 
 const number = new Intl.NumberFormat("en-US", { maximumFractionDigits: 0 });
@@ -83,7 +84,7 @@ function renderSummary(data) {
 }
 
 function renderCosts(data) {
-  const rows = data.last_24_hours?.circuits || [];
+  const rows = data.circuits || [];
   const body = $("cost-circuits");
   body.replaceChildren();
   const totalEnergy = rows.reduce((sum, row) => sum + row.energy_kwh, 0);
@@ -107,9 +108,48 @@ function renderCosts(data) {
     });
     body.append(tr);
   });
-  const coverage = data.last_24_hours?.priced_energy_percent;
+  $("usage-period-label").textContent = data.period_label || "Selected period";
+  populateUsageMonths(data.available_months || []);
+  const coverage = data.priced_energy_percent;
   $("cost-coverage").textContent = coverage == null
-    ? "" : `${coverage.toFixed(1)}% of Main Power energy had a matching ComEd price.`;
+    ? "" : `${coverage.toFixed(1)}% of circuit energy had a matching ComEd price.`;
+}
+
+function populateUsageMonths(months) {
+  const select = $("usage-period");
+  const existing = new Set(Array.from(select.options).map((option) => option.value));
+  const missing = months.filter((month) => !existing.has(month.value));
+  if (!missing.length) return;
+  let group = Array.from(select.children).find(
+    (item) => item.tagName === "OPTGROUP" && item.label === "Specific month"
+  );
+  if (!group) {
+    group = document.createElement("optgroup");
+    group.label = "Specific month";
+    select.append(group);
+  }
+  missing.forEach((month) => {
+    const option = document.createElement("option");
+    option.value = month.value;
+    option.textContent = month.label;
+    group.append(option);
+  });
+  select.value = selectedUsagePeriod;
+}
+
+async function loadCircuitUsage() {
+  try {
+    const response = await fetch(
+      `/api/circuit-usage?period=${encodeURIComponent(selectedUsagePeriod)}`,
+      { cache: "no-store" }
+    );
+    if (!response.ok) {
+      throw new Error((await response.json()).error || "Circuit usage request failed");
+    }
+    renderCosts(await response.json());
+  } catch (error) {
+    $("cost-coverage").textContent = error.message;
+  }
 }
 
 function renderDataQuality(data) {
@@ -399,7 +439,6 @@ async function loadDashboard() {
     renderPicker(data);
     renderCircuits(data);
     renderChart(data);
-    renderCosts(data);
     renderDataQuality(data);
     renderBurnRate(data);
     renderDonut(data);
@@ -415,9 +454,17 @@ function selectCircuit(circuitId) {
 }
 
 $("circuit-select").addEventListener("change", (event) => selectCircuit(Number(event.target.value)));
+$("usage-period").addEventListener("change", (event) => {
+  selectedUsagePeriod = event.target.value;
+  loadCircuitUsage();
+});
 window.addEventListener("resize", () => {
   if (lastPayload) { renderChart(lastPayload); renderBurnRate(lastPayload); renderDonut(lastPayload); }
 });
 loadDashboard();
-setInterval(loadDashboard, REFRESH_MS);
+loadCircuitUsage();
+setInterval(() => {
+  loadDashboard();
+  if (selectedUsagePeriod === "24h") loadCircuitUsage();
+}, REFRESH_MS);
 

@@ -14,7 +14,8 @@ to run as a separate application on the same Raspberry Pi 5.
 - Raspberry Pi CPU temperature, free disk space, and fan speed when exposed by
   the Pi's Linux kernel.
 - the latest ComEd five-minute market price, estimated current cost rate, and
-  top 20 circuits over the past 24 hours in both kWh and variable cost.
+  top 20 circuits in both kWh and variable cost for the last 24 hours, 7 days,
+  30 days, 365 days, or a specific available month.
 - a half-hour dollar-per-hour bar chart whose current slot is recalculated from
   the collector's in-progress energy accumulator every 15 seconds.
 - today's and yesterday's missing data in minutes and as a coverage percentage.

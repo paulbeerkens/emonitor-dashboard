@@ -118,6 +118,10 @@ footer { padding: 24px 4px 0; color: #6c806f; font-size: .72rem; text-align: cen
 .burn-baseline { stroke: rgba(49,99,59,.24); stroke-width: 1; }
 
 .cost-panel { overflow: hidden; }
+.usage-period-control { display: grid; gap: 6px; min-width: 220px; }
+.usage-period-control label { color: var(--muted); font-size: .68rem; font-weight: 750; letter-spacing: .08em; text-transform: uppercase; }
+.usage-period-control select { min-width: 220px; }
+.cost-explanation { max-width: 760px; margin-top: 15px; color: var(--muted); font-size: .82rem; line-height: 1.5; }
 .cost-table-wrap { margin-top: 22px; overflow-x: auto; }
 .cost-table { width: 100%; border-collapse: collapse; font-size: .84rem; }
 .cost-table th { padding: 10px 12px; color: var(--muted); font-size: .66rem; letter-spacing: .09em; text-align: right; text-transform: uppercase; }

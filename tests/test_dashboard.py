@@ -139,6 +139,22 @@ def test_api_returns_dashboard_payload(tmp_path):
   assert [day["label"] for day in response.get_json()["data_quality"]["days"]] == ["Today", "Yesterday"]
   assert response.get_json()["data_quality"]["days"][0]["missing_minutes"] >= 0
 
+  usage_response = client.get("/api/circuit-usage?period=7d")
+  assert usage_response.status_code == 200
+  usage = usage_response.get_json()
+  assert usage["period_label"] == "Last 7 days"
+  assert usage["circuits"][0]["channel_name"] == "Car Charger"
+  assert usage["circuits"][0]["energy_kwh"] == pytest.approx(3.55)
+  assert usage["available_months"]
+
+  month = datetime.now(timezone.utc).strftime("%Y-%m")
+  month_response = client.get(f"/api/circuit-usage?period={month}")
+  assert month_response.status_code == 200
+  assert month_response.get_json()["period"] == month
+
+  invalid_response = client.get("/api/circuit-usage?period=forever")
+  assert invalid_response.status_code == 400
+
 
 def test_system_metrics_reads_pi_sysfs_values(tmp_path):
   thermal = tmp_path / "class" / "thermal" / "thermal_zone0"
