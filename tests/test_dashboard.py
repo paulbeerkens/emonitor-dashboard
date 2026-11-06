@@ -95,7 +95,19 @@ def test_snapshot_returns_live_ranking_and_history(tmp_path):
   assert result["selected_circuit"] == {"id": 5, "name": "Car Charger"}
   assert [point["watts"] for point in result["history"]] == [6390, 7100]
   assert result["solar"]["today_energy_kwh"] == pytest.approx(0.35)
-  assert len(result["solar"]["today_half_hours"]) == 24
+  solar = result["solar"]
+  assert len(solar["today_half_hours"]) > 0
+  assert solar["today_half_hours"][0]["period_start_ms"] == solar["horizon_start_ms"]
+  assert (
+    solar["today_half_hours"][-1]["period_start_ms"] + 30 * 60 * 1000
+    == solar["horizon_end_ms"]
+  )
+  assert all(
+    right["period_start_ms"] - left["period_start_ms"] == 30 * 60 * 1000
+    for left, right in zip(
+      solar["today_half_hours"], solar["today_half_hours"][1:]
+    )
+  )
   assert len(result["solar"]["daily"]) == 14
   assert result["solar"]["sunrise_ms"] < result["solar"]["sunset_ms"]
   assert result["solar"]["daylight_status"] in {

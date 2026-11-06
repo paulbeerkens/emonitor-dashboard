@@ -21,8 +21,9 @@ to run as a separate application on the same Raspberry Pi 5.
 - today's and yesterday's missing data in minutes and as a coverage percentage.
 - a clickable SiteSage-style donut showing the 24-hour energy share of every
   named branch circuit;
-- orange solar-production bar charts for today's half-hour output from 7 AM to
-  7 PM and daily output over the last 14 days, including live in-progress totals,
+- orange solar-production bar charts for today's half-hour output across the
+  outward-rounded sunrise-to-sunset window and daily output over the last 14 days,
+  including live in-progress totals,
   yesterday-by-this-time comparison, data coverage, and sunrise/sunset context;
 - Raspberry Pi CPU utilization and memory use alongside temperature, disk, and
   fan health.

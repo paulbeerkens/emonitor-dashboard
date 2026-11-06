@@ -472,11 +472,10 @@ class DashboardDatabase:
         half_hour_energy.get(current_start, 0.0) + current_energy_kwh
       )
 
-    solar_day_start = datetime.combine(today, datetime.min.time(), CHICAGO).replace(
-      hour=7
-    )
+    sunrise, sunset, solar_day_start, solar_day_end = self._solar_window(today)
     half_hours = []
-    for offset in range(24):
+    slot_count = round((solar_day_end - solar_day_start).total_seconds() / 1800)
+    for offset in range(slot_count):
       slot_start = solar_day_start + timedelta(minutes=30 * offset)
       half_hours.append({
         "period_start_ms": round(slot_start.timestamp() * 1000),
@@ -494,8 +493,6 @@ class DashboardDatabase:
         "future": slot_start > local_now,
       })
 
-    sunrise = self._sun_event(today, sunrise=True)
-    sunset = self._sun_event(today, sunrise=False)
     if sunrise and local_now < sunrise:
       daylight_status = "before_sunrise"
     elif sunset and local_now >= sunset:
@@ -505,15 +502,17 @@ class DashboardDatabase:
 
     days = []
     for local_date, energy_kwh in daily_energy.items():
-      window_start = datetime.combine(
-        local_date, datetime.min.time(), CHICAGO
-      ).replace(hour=7)
-      window_end = window_start.replace(hour=19)
-      observed_end = min(window_end, local_now) if local_date == today else window_end
+      _, _, window_start, window_end = self._solar_window(local_date)
+      observed_end = (
+        min(window_end, max(window_start, local_now))
+        if local_date == today else window_end
+      )
       expected_seconds = max(0.0, (observed_end - window_start).total_seconds())
       measured_seconds = sum(
-        seconds for (date, hour, _), seconds in measured_by_slot.items()
-        if date == local_date and 7 <= hour < 19
+        seconds for (date, hour, minute), seconds in measured_by_slot.items()
+        if date == local_date and window_start <= datetime.combine(
+          date, datetime.min.time(), CHICAGO
+        ).replace(hour=hour, minute=minute) < window_end
       )
       measured_seconds = min(measured_seconds, expected_seconds)
       missing_minutes = max(0.0, expected_seconds - measured_seconds) / 60
@@ -555,6 +554,8 @@ class DashboardDatabase:
       "best_day": best_day,
       "sunrise_ms": round(sunrise.timestamp() * 1000) if sunrise else None,
       "sunset_ms": round(sunset.timestamp() * 1000) if sunset else None,
+      "horizon_start_ms": round(solar_day_start.timestamp() * 1000),
+      "horizon_end_ms": round(solar_day_end.timestamp() * 1000),
       "daylight_status": daylight_status,
       "today_half_hours": half_hours,
       "daily": days,
@@ -602,6 +603,29 @@ class DashboardDatabase:
       local_date, datetime.min.time(), timezone.utc
     )
     return (utc_midnight + timedelta(hours=utc_hour)).astimezone(CHICAGO)
+
+  def _solar_window(
+    self, local_date: Any
+  ) -> tuple[datetime | None, datetime | None, datetime, datetime]:
+    """Return sunrise/sunset and their outward-rounded half-hour window."""
+    sunrise = self._sun_event(local_date, sunrise=True)
+    sunset = self._sun_event(local_date, sunrise=False)
+    fallback = datetime.combine(local_date, datetime.min.time(), CHICAGO)
+    if sunrise is None or sunset is None:
+      return sunrise, sunset, fallback.replace(hour=7), fallback.replace(hour=19)
+    window_start = sunrise.replace(
+      minute=0 if sunrise.minute < 30 else 30,
+      second=0,
+      microsecond=0,
+    )
+    window_end = sunset.replace(
+      minute=0 if sunset.minute < 30 else 30,
+      second=0,
+      microsecond=0,
+    )
+    if window_end < sunset:
+      window_end += timedelta(minutes=30)
+    return sunrise, sunset, window_start, window_end
 
   def _data_quality(
     self,

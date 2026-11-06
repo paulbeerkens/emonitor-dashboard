@@ -67,8 +67,6 @@ h2 { font-size: clamp(1.5rem, 3vw, 2.25rem); letter-spacing: -.035em; }
 .solar-bar.future { fill: rgba(236, 107, 45, .10); }
 .solar-bar.current { fill: #f59f16; stroke: #c94f18; stroke-width: 1.5; }
 .solar-bar.incomplete { opacity: .55; }
-.solar-marker { stroke: #87592f; stroke-width: 1.2; stroke-dasharray: 4 4; }
-.solar-marker-label { fill: #87592f; font-size: 10px; font-weight: 700; }
 .solar-legend { display: flex; gap: 16px; flex-wrap: wrap; margin-top: 10px; color: var(--muted); font-size: .68rem; }
 .solar-legend span { display: inline-flex; align-items: center; gap: 6px; }
 .solar-swatch { width: 13px; height: 8px; border-radius: 2px; background: var(--orange); }

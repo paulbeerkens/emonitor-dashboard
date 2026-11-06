@@ -83,7 +83,7 @@ function renderSummary(data) {
   setStatus(data.sampled_at_ms);
 }
 
-function renderSolarBarChart(svgId, tooltipId, rows, mode, markers = []) {
+function renderSolarBarChart(svgId, tooltipId, rows, mode) {
   const svg = $(svgId);
   const tooltip = $(tooltipId);
   svg.replaceChildren();
@@ -133,27 +133,9 @@ function renderSolarBarChart(svgId, tooltipId, rows, mode, markers = []) {
   });
 
   if (mode === "half-hour") {
-    const rangeStart = rows[0].period_start_ms;
-    const rangeEnd = rangeStart + rows.length * 30 * 60 * 1000;
-    markers.forEach((marker) => {
-      if (marker.timestamp_ms < rangeStart || marker.timestamp_ms > rangeEnd) return;
-      const x = margin.left + (
-        (marker.timestamp_ms - rangeStart) / (rangeEnd - rangeStart)
-      ) * plotWidth;
-      svg.append(make("line", {
-        x1: x, y1: margin.top, x2: x, y2: margin.top + plotHeight,
-        class: "solar-marker"
-      }));
-      const label = make("text", {
-        x: x + 4, y: margin.top + 10, class: "solar-marker-label"
-      });
-      label.textContent = marker.label;
-      svg.append(label);
-    });
-  }
-
-  if (mode === "half-hour") {
-    [0, 6, 12, 18, 24].forEach((boundary) => {
+    [...new Set(Array.from(
+      { length: 5 }, (_, index) => Math.round(index * rows.length / 4)
+    ))].forEach((boundary) => {
       const first = rows[0].period_start_ms;
       const timestamp = first + boundary * 30 * 60 * 1000;
       const label = make("text", {
@@ -222,11 +204,7 @@ function renderSolar(data) {
     dailyLegendSwatch.className = "solar-swatch current";
   }
   renderSolarBarChart(
-    "solar-today-chart", "solar-today-tooltip", solar.today_half_hours || [], "half-hour",
-    [
-      { timestamp_ms: solar.sunrise_ms, label: "Sunrise" },
-      { timestamp_ms: solar.sunset_ms, label: "Sunset" },
-    ].filter((item) => item.timestamp_ms != null)
+    "solar-today-chart", "solar-today-tooltip", solar.today_half_hours || [], "half-hour"
   );
   renderSolarBarChart(
     "solar-daily-chart", "solar-daily-tooltip", solar.daily || [], "daily"
@@ -240,12 +218,17 @@ function renderSolar(data) {
   $("solar-best-day").textContent = best
     ? `${best.energy_kwh.toFixed(2)} kWh · ${best.label} · ${best.coverage_percent.toFixed(1)}% coverage`
     : "—";
-  const daylight = [solar.sunrise_ms, solar.sunset_ms].every((value) => value != null)
-    ? `Chicago-area sunrise ${new Date(solar.sunrise_ms).toLocaleTimeString([], { hour: "numeric", minute: "2-digit" })} · sunset ${new Date(solar.sunset_ms).toLocaleTimeString([], { hour: "numeric", minute: "2-digit" })}`
-    : "Sunrise and sunset unavailable";
-  $("solar-daylight").textContent = daylight;
+  const timeLabel = (timestamp) => new Date(timestamp).toLocaleTimeString([], {
+    hour: "numeric", minute: "2-digit"
+  });
+  if (solar.horizon_start_ms != null && solar.horizon_end_ms != null) {
+    $("solar-horizon").textContent = `Today · ${timeLabel(solar.horizon_start_ms)}–${timeLabel(solar.horizon_end_ms)}`;
+  }
   const today = (solar.daily || []).find((day) => day.date === solar.today_date);
-  const coverageWindow = new Date().getHours() >= 19 ? "7 AM–7 PM" : "7 AM–now";
+  const coverageEnd = solar.daylight_status === "daylight"
+    ? "now" : timeLabel(solar.horizon_end_ms);
+  const coverageWindow = solar.horizon_start_ms == null
+    ? "daylight window" : `${timeLabel(solar.horizon_start_ms)}–${coverageEnd}`;
   $("solar-quality").textContent = today
     ? `Today’s solar data: ${today.coverage_percent.toFixed(1)}% coverage · ${today.missing_minutes.toFixed(1)} minutes missing (${coverageWindow})`
     : "Solar data coverage unavailable";
