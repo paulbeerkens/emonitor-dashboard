@@ -31,7 +31,11 @@ def create_app(
   path = Path(configured_path)
   if not path.is_absolute():
     path = PROJECT_ROOT / path
-  database = DashboardDatabase(path)
+  database = DashboardDatabase(
+    path,
+    latitude=float(os.getenv("SOLAR_LATITUDE", "41.8781")),
+    longitude=float(os.getenv("SOLAR_LONGITUDE", "-87.6298")),
+  )
   metrics = system_metrics or SystemMetrics()
   prices = pricing_service or ComEdPricingService()
   variable_addon = float(os.getenv(

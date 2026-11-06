@@ -97,6 +97,10 @@ def test_snapshot_returns_live_ranking_and_history(tmp_path):
   assert result["solar"]["today_energy_kwh"] == pytest.approx(0.35)
   assert len(result["solar"]["today_half_hours"]) == 24
   assert len(result["solar"]["daily"]) == 14
+  assert result["solar"]["sunrise_ms"] < result["solar"]["sunset_ms"]
+  assert "average_power_kw" in result["solar"]["today_half_hours"][0]
+  assert "coverage_percent" in result["solar"]["daily"][-1]
+  assert result["solar"]["best_day"] is not None
 
 
 def test_main_power_is_default_and_first_selectable_circuit(tmp_path):

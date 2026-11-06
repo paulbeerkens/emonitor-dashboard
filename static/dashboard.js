@@ -83,7 +83,7 @@ function renderSummary(data) {
   setStatus(data.sampled_at_ms);
 }
 
-function renderSolarBarChart(svgId, tooltipId, rows, mode) {
+function renderSolarBarChart(svgId, tooltipId, rows, mode, markers = []) {
   const svg = $(svgId);
   const tooltip = $(tooltipId);
   svg.replaceChildren();
@@ -123,6 +123,7 @@ function renderSolarBarChart(svgId, tooltipId, rows, mode) {
     const classes = ["solar-bar"];
     if (row.future) classes.push("future");
     if (row.current) classes.push("current");
+    if (row.coverage_percent != null && row.coverage_percent < 99) classes.push("incomplete");
     const bar = make("rect", {
       x, y, width: barWidth, height: Math.max(row.future ? 1 : 2, barHeight),
       rx: Math.min(3, barWidth / 3), class: classes.join(" ")
@@ -130,6 +131,26 @@ function renderSolarBarChart(svgId, tooltipId, rows, mode) {
     svg.append(bar);
     bars.push({ x, y, row });
   });
+
+  if (mode === "half-hour") {
+    const rangeStart = rows[0].period_start_ms;
+    const rangeEnd = rangeStart + rows.length * 30 * 60 * 1000;
+    markers.forEach((marker) => {
+      if (marker.timestamp_ms < rangeStart || marker.timestamp_ms > rangeEnd) return;
+      const x = margin.left + (
+        (marker.timestamp_ms - rangeStart) / (rangeEnd - rangeStart)
+      ) * plotWidth;
+      svg.append(make("line", {
+        x1: x, y1: margin.top, x2: x, y2: margin.top + plotHeight,
+        class: "solar-marker"
+      }));
+      const label = make("text", {
+        x: x + 4, y: margin.top + 10, class: "solar-marker-label"
+      });
+      label.textContent = marker.label;
+      svg.append(label);
+    });
+  }
 
   if (mode === "half-hour") {
     [0, 6, 12, 18, 24].forEach((boundary) => {
@@ -170,7 +191,15 @@ function renderSolarBarChart(svgId, tooltipId, rows, mode) {
     const label = mode === "half-hour"
       ? new Date(target.row.period_start_ms).toLocaleTimeString([], { hour: "numeric", minute: "2-digit" })
       : target.row.label;
-    tooltip.textContent = `${label} · ${target.row.energy_kwh.toFixed(3)} kWh${target.row.current ? " · updating" : ""}`;
+    const details = [`${target.row.energy_kwh.toFixed(3)} kWh`];
+    if (mode === "half-hour" && target.row.average_power_kw != null) {
+      details.push(`${target.row.average_power_kw.toFixed(2)} kW average`);
+    }
+    if (mode === "daily" && target.row.coverage_percent != null) {
+      details.push(`${target.row.coverage_percent.toFixed(1)}% data coverage`);
+    }
+    if (target.row.current) details.push("updating");
+    tooltip.textContent = `${label} · ${details.join(" · ")}`;
   };
   svg.onpointerleave = () => { tooltip.hidden = true; };
 }
@@ -181,11 +210,33 @@ function renderSolar(data) {
   $("solar-today-total").textContent = total == null ? "—" : total.toFixed(2);
   $("solar-daily-latest").textContent = total == null ? "—" : total.toFixed(2);
   renderSolarBarChart(
-    "solar-today-chart", "solar-today-tooltip", solar.today_half_hours || [], "half-hour"
+    "solar-today-chart", "solar-today-tooltip", solar.today_half_hours || [], "half-hour",
+    [
+      { timestamp_ms: solar.sunrise_ms, label: "Sunrise" },
+      { timestamp_ms: solar.sunset_ms, label: "Sunset" },
+    ].filter((item) => item.timestamp_ms != null)
   );
   renderSolarBarChart(
     "solar-daily-chart", "solar-daily-tooltip", solar.daily || [], "daily"
   );
+  $("solar-yesterday").textContent = solar.yesterday_by_now_kwh == null
+    ? "—" : `${solar.yesterday_by_now_kwh.toFixed(2)} kWh`;
+  const difference = solar.difference_percent;
+  $("solar-difference").textContent = difference == null
+    ? "—" : `${difference >= 0 ? "+" : ""}${difference.toFixed(1)}%`;
+  const best = solar.best_day;
+  $("solar-best-day").textContent = best
+    ? `${best.energy_kwh.toFixed(2)} kWh · ${best.label} · ${best.coverage_percent.toFixed(1)}% coverage`
+    : "—";
+  const daylight = [solar.sunrise_ms, solar.sunset_ms].every((value) => value != null)
+    ? `Chicago-area sunrise ${new Date(solar.sunrise_ms).toLocaleTimeString([], { hour: "numeric", minute: "2-digit" })} · sunset ${new Date(solar.sunset_ms).toLocaleTimeString([], { hour: "numeric", minute: "2-digit" })}`
+    : "Sunrise and sunset unavailable";
+  $("solar-daylight").textContent = daylight;
+  const today = (solar.daily || []).find((day) => day.current);
+  const coverageWindow = new Date().getHours() >= 19 ? "7 AM–7 PM" : "7 AM–now";
+  $("solar-quality").textContent = today
+    ? `Today’s solar data: ${today.coverage_percent.toFixed(1)}% coverage · ${today.missing_minutes.toFixed(1)} minutes missing (${coverageWindow})`
+    : "Solar data coverage unavailable";
 }
 
 function renderCosts(data) {

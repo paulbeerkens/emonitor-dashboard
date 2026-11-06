@@ -137,6 +137,16 @@
             <svg id="solar-today-chart" role="img" aria-label="Today's half-hour solar production from 7 AM through 7 PM"></svg>
             <div class="tooltip" id="solar-today-tooltip" hidden></div>
           </div>
+          <div class="solar-legend">
+            <span><i class="solar-swatch"></i>Completed half-hour</span>
+            <span><i class="solar-swatch current"></i>Current incomplete half-hour</span>
+          </div>
+          <div class="solar-insights">
+            <p><span>Yesterday by this time</span><strong id="solar-yesterday">—</strong></p>
+            <p><span>Today’s difference</span><strong id="solar-difference">—</strong></p>
+          </div>
+          <p class="solar-context" id="solar-daylight">Sunrise and sunset unavailable</p>
+          <p class="solar-context" id="solar-quality">Solar data coverage unavailable</p>
         </article>
         <article class="panel solar-chart-panel">
           <div class="solar-chart-heading">
@@ -150,6 +160,14 @@
             <svg id="solar-daily-chart" role="img" aria-label="Daily solar production for the last 14 days"></svg>
             <div class="tooltip" id="solar-daily-tooltip" hidden></div>
           </div>
+          <div class="solar-legend">
+            <span><i class="solar-swatch"></i>Completed day</span>
+            <span><i class="solar-swatch current"></i>Today · still updating</span>
+          </div>
+          <div class="solar-insights single">
+            <p><span>Best recorded day shown</span><strong id="solar-best-day">—</strong></p>
+          </div>
+          <p class="solar-context">Hover over a bar to see its energy and data coverage.</p>
         </article>
       </section>
 

@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import json
+import math
 import re
 import sqlite3
 from datetime import datetime, timedelta, timezone
@@ -13,13 +14,23 @@ from zoneinfo import ZoneInfo
 
 SUMMARY_NAMES = {"main power", "solar panels"}
 CHICAGO = ZoneInfo("America/Chicago")
+CHICAGO_LATITUDE = 41.8781
+CHICAGO_LONGITUDE = -87.6298
 
 
 class DashboardDatabase:
   """Query collector data without modifying or blocking its database."""
 
-  def __init__(self, database_path: str | Path):
+  def __init__(
+    self,
+    database_path: str | Path,
+    *,
+    latitude: float = CHICAGO_LATITUDE,
+    longitude: float = CHICAGO_LONGITUDE,
+  ):
     self.database_path = Path(database_path).expanduser().resolve()
+    self.latitude = latitude
+    self.longitude = longitude
 
   def _connect(self) -> sqlite3.Connection:
     if not self.database_path.is_file():
@@ -394,12 +405,14 @@ class DashboardDatabase:
     daily_energy = {
       first_day + timedelta(days=offset): 0.0 for offset in range(14)
     }
+    measured_by_slot: dict[tuple[Any, int, int], float] = {}
+    energy_by_slot: dict[tuple[Any, int, int], float] = {}
     half_hour_energy: dict[datetime, float] = {}
 
     if solar_ids and self._table_exists(connection, "channel_usage"):
       placeholders = ",".join("?" for _ in solar_ids)
       rows = connection.execute(
-        f"SELECT period_start, energy_wh FROM channel_usage "
+        f"SELECT period_start, energy_wh, measured_seconds FROM channel_usage "
         f"WHERE id IN ({placeholders}) AND period_start>=? AND period_start<? "
         "ORDER BY period_start",
         (*sorted(solar_ids), query_start.isoformat(), query_end.isoformat()),
@@ -410,12 +423,18 @@ class DashboardDatabase:
         local_date = period_start.date()
         if local_date in daily_energy:
           daily_energy[local_date] += energy_kwh
+          key = (local_date, period_start.hour, period_start.minute)
+          energy_by_slot[key] = energy_by_slot.get(key, 0.0) + energy_kwh
+          measured_by_slot[key] = max(
+            measured_by_slot.get(key, 0.0), float(row["measured_seconds"])
+          )
         if local_date == today:
           slot = period_start.replace(second=0, microsecond=0)
           half_hour_energy[slot] = half_hour_energy.get(slot, 0.0) + energy_kwh
 
     current_start: datetime | None = None
     current_energy_kwh = 0.0
+    current_measured_seconds = 0.0
     if solar_ids and self._table_exists(connection, "collector_state"):
       row = connection.execute(
         "SELECT state_json FROM collector_state WHERE id=1"
@@ -427,9 +446,14 @@ class DashboardDatabase:
             state["period_start"]
           ).astimezone(CHICAGO)
         energy = state.get("energy_watt_seconds", {})
+        measured = state.get("measured_seconds", {})
         current_energy_kwh = sum(
           float(energy.get(str(channel_id), 0)) for channel_id in solar_ids
         ) / 3_600_000
+        current_measured_seconds = max(
+          (float(measured.get(str(channel_id), 0)) for channel_id in solar_ids),
+          default=0.0,
+        )
     if current_start and current_start.date() == today:
       current_start = current_start.replace(
         minute=0 if current_start.minute < 30 else 30,
@@ -437,6 +461,13 @@ class DashboardDatabase:
         microsecond=0,
       )
       daily_energy[today] += current_energy_kwh
+      current_key = (today, current_start.hour, current_start.minute)
+      energy_by_slot[current_key] = (
+        energy_by_slot.get(current_key, 0.0) + current_energy_kwh
+      )
+      measured_by_slot[current_key] = max(
+        measured_by_slot.get(current_key, 0.0), current_measured_seconds
+      )
       half_hour_energy[current_start] = (
         half_hour_energy.get(current_start, 0.0) + current_energy_kwh
       )
@@ -450,24 +481,119 @@ class DashboardDatabase:
       half_hours.append({
         "period_start_ms": round(slot_start.timestamp() * 1000),
         "energy_kwh": round(half_hour_energy.get(slot_start, 0.0), 4),
+        "average_power_kw": round(
+          (
+            half_hour_energy.get(slot_start, 0.0)
+            / (current_measured_seconds / 3600)
+            if current_start == slot_start and current_measured_seconds > 0
+            else half_hour_energy.get(slot_start, 0.0) * 2
+          ),
+          3,
+        ),
         "current": current_start == slot_start,
         "future": slot_start > local_now,
       })
 
     days = []
     for local_date, energy_kwh in daily_energy.items():
+      window_start = datetime.combine(
+        local_date, datetime.min.time(), CHICAGO
+      ).replace(hour=7)
+      window_end = window_start.replace(hour=19)
+      observed_end = min(window_end, local_now) if local_date == today else window_end
+      expected_seconds = max(0.0, (observed_end - window_start).total_seconds())
+      measured_seconds = sum(
+        seconds for (date, hour, _), seconds in measured_by_slot.items()
+        if date == local_date and 7 <= hour < 19
+      )
+      measured_seconds = min(measured_seconds, expected_seconds)
+      missing_minutes = max(0.0, expected_seconds - measured_seconds) / 60
       days.append({
         "date": local_date.isoformat(),
         "label": local_date.strftime("%a %-m/%-d"),
         "energy_kwh": round(energy_kwh, 4),
         "current": local_date == today,
+        "coverage_percent": round(
+          measured_seconds / expected_seconds * 100, 1
+        ) if expected_seconds else 100.0,
+        "missing_minutes": round(missing_minutes, 1),
       })
+
+    yesterday = today - timedelta(days=1)
+    current_slot_minute = local_now.hour * 60 + local_now.minute
+    slot_progress = ((local_now.minute % 30) * 60 + local_now.second) / 1800
+    yesterday_by_now = 0.0
+    for (local_date, hour, minute), energy_kwh in energy_by_slot.items():
+      if local_date != yesterday:
+        continue
+      slot_minute = hour * 60 + minute
+      if slot_minute < current_slot_minute - local_now.minute % 30:
+        yesterday_by_now += energy_kwh
+      elif slot_minute == current_slot_minute - local_now.minute % 30:
+        yesterday_by_now += energy_kwh * slot_progress
+
+    difference_percent = None
+    if yesterday_by_now > 0:
+      difference_percent = (
+        (daily_energy[today] - yesterday_by_now) / yesterday_by_now * 100
+      )
+    best_day = max(days, key=lambda item: item["energy_kwh"], default=None)
+    sunrise = self._sun_event(today, sunrise=True)
+    sunset = self._sun_event(today, sunrise=False)
     return {
       "today_date": today.isoformat(),
       "today_energy_kwh": round(daily_energy[today], 4),
+      "yesterday_by_now_kwh": round(yesterday_by_now, 4),
+      "difference_percent": round(difference_percent, 1) if difference_percent is not None else None,
+      "best_day": best_day,
+      "sunrise_ms": round(sunrise.timestamp() * 1000) if sunrise else None,
+      "sunset_ms": round(sunset.timestamp() * 1000) if sunset else None,
       "today_half_hours": half_hours,
       "daily": days,
     }
+
+  def _sun_event(self, local_date: Any, *, sunrise: bool) -> datetime | None:
+    """Approximate a sunrise or sunset using the NOAA solar calculation."""
+    day = local_date.timetuple().tm_yday
+    longitude_hour = self.longitude / 15
+    approximate = day + (
+      (6 if sunrise else 18) - longitude_hour
+    ) / 24
+    mean_anomaly = 0.9856 * approximate - 3.289
+    true_longitude = (
+      mean_anomaly
+      + 1.916 * math.sin(math.radians(mean_anomaly))
+      + 0.020 * math.sin(math.radians(2 * mean_anomaly))
+      + 282.634
+    ) % 360
+    right_ascension = math.degrees(math.atan(
+      0.91764 * math.tan(math.radians(true_longitude))
+    )) % 360
+    right_ascension += (
+      math.floor(true_longitude / 90) * 90
+      - math.floor(right_ascension / 90) * 90
+    )
+    right_ascension /= 15
+    sin_declination = 0.39782 * math.sin(math.radians(true_longitude))
+    cos_declination = math.cos(math.asin(sin_declination))
+    cos_hour = (
+      math.cos(math.radians(90.833))
+      - sin_declination * math.sin(math.radians(self.latitude))
+    ) / (cos_declination * math.cos(math.radians(self.latitude)))
+    if cos_hour < -1 or cos_hour > 1:
+      return None
+    hour_angle = math.degrees(math.acos(cos_hour))
+    if sunrise:
+      hour_angle = 360 - hour_angle
+    hour_angle /= 15
+    local_mean_time = (
+      hour_angle + right_ascension - 0.06571 * approximate - 6.622
+    )
+    utc_hour = (local_mean_time - longitude_hour) % 24
+    utc_midnight = datetime.combine(
+      local_date, datetime.min.time(), timezone.utc
+    )
+    return (utc_midnight + timedelta(hours=utc_hour)).astimezone(CHICAGO)
 
   def _data_quality(
     self,
