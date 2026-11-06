@@ -277,13 +277,12 @@ function renderCircuits(data) {
   const container = $("top-circuits");
   container.replaceChildren();
   const maximum = Math.max(...data.top_circuits.map((item) => item.power_watts), 1);
-  data.top_circuits.forEach((circuit, index) => {
+  data.top_circuits.forEach((circuit) => {
     const button = document.createElement("button");
     button.type = "button";
     button.className = `circuit-card${circuit.channel_id === selectedCircuitId ? " selected" : ""}`;
     button.setAttribute("aria-label", `Show ${circuit.channel_name}, ${circuit.power_watts} watts`);
     button.innerHTML = `
-      <span class="circuit-rank">NO. ${index + 1}</span>
       <span class="circuit-name"></span>
       <span class="circuit-watts">${watts(circuit.power_watts)} <small>W</small></span>
       <span class="power-bar"><span style="width:${Math.max(2, circuit.power_watts / maximum * 100)}%"></span></span>`;
