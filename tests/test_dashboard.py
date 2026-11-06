@@ -98,6 +98,9 @@ def test_snapshot_returns_live_ranking_and_history(tmp_path):
   assert len(result["solar"]["today_half_hours"]) == 24
   assert len(result["solar"]["daily"]) == 14
   assert result["solar"]["sunrise_ms"] < result["solar"]["sunset_ms"]
+  assert result["solar"]["daylight_status"] in {
+    "before_sunrise", "daylight", "after_sunset"
+  }
   assert "average_power_kw" in result["solar"]["today_half_hours"][0]
   assert "coverage_percent" in result["solar"]["daily"][-1]
   assert result["solar"]["best_day"] is not None

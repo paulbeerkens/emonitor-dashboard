@@ -494,6 +494,15 @@ class DashboardDatabase:
         "future": slot_start > local_now,
       })
 
+    sunrise = self._sun_event(today, sunrise=True)
+    sunset = self._sun_event(today, sunrise=False)
+    if sunrise and local_now < sunrise:
+      daylight_status = "before_sunrise"
+    elif sunset and local_now >= sunset:
+      daylight_status = "after_sunset"
+    else:
+      daylight_status = "daylight"
+
     days = []
     for local_date, energy_kwh in daily_energy.items():
       window_start = datetime.combine(
@@ -512,7 +521,7 @@ class DashboardDatabase:
         "date": local_date.isoformat(),
         "label": local_date.strftime("%a %-m/%-d"),
         "energy_kwh": round(energy_kwh, 4),
-        "current": local_date == today,
+        "current": local_date == today and daylight_status == "daylight",
         "coverage_percent": round(
           measured_seconds / expected_seconds * 100, 1
         ) if expected_seconds else 100.0,
@@ -538,8 +547,6 @@ class DashboardDatabase:
         (daily_energy[today] - yesterday_by_now) / yesterday_by_now * 100
       )
     best_day = max(days, key=lambda item: item["energy_kwh"], default=None)
-    sunrise = self._sun_event(today, sunrise=True)
-    sunset = self._sun_event(today, sunrise=False)
     return {
       "today_date": today.isoformat(),
       "today_energy_kwh": round(daily_energy[today], 4),
@@ -548,6 +555,7 @@ class DashboardDatabase:
       "best_day": best_day,
       "sunrise_ms": round(sunrise.timestamp() * 1000) if sunrise else None,
       "sunset_ms": round(sunset.timestamp() * 1000) if sunset else None,
+      "daylight_status": daylight_status,
       "today_half_hours": half_hours,
       "daily": days,
     }

@@ -209,6 +209,18 @@ function renderSolar(data) {
   const total = solar.today_energy_kwh;
   $("solar-today-total").textContent = total == null ? "—" : total.toFixed(2);
   $("solar-daily-latest").textContent = total == null ? "—" : total.toFixed(2);
+  const dailyLegend = $("solar-daily-legend");
+  const dailyLegendSwatch = $("solar-daily-legend-swatch");
+  if (solar.daylight_status === "after_sunset") {
+    dailyLegend.textContent = "Today · production complete";
+    dailyLegendSwatch.className = "solar-swatch";
+  } else if (solar.daylight_status === "before_sunrise") {
+    dailyLegend.textContent = "Today · awaiting sunrise";
+    dailyLegendSwatch.className = "solar-swatch";
+  } else {
+    dailyLegend.textContent = "Today · still updating";
+    dailyLegendSwatch.className = "solar-swatch current";
+  }
   renderSolarBarChart(
     "solar-today-chart", "solar-today-tooltip", solar.today_half_hours || [], "half-hour",
     [
@@ -232,7 +244,7 @@ function renderSolar(data) {
     ? `Chicago-area sunrise ${new Date(solar.sunrise_ms).toLocaleTimeString([], { hour: "numeric", minute: "2-digit" })} · sunset ${new Date(solar.sunset_ms).toLocaleTimeString([], { hour: "numeric", minute: "2-digit" })}`
     : "Sunrise and sunset unavailable";
   $("solar-daylight").textContent = daylight;
-  const today = (solar.daily || []).find((day) => day.current);
+  const today = (solar.daily || []).find((day) => day.date === solar.today_date);
   const coverageWindow = new Date().getHours() >= 19 ? "7 AM–7 PM" : "7 AM–now";
   $("solar-quality").textContent = today
     ? `Today’s solar data: ${today.coverage_percent.toFixed(1)}% coverage · ${today.missing_minutes.toFixed(1)} minutes missing (${coverageWindow})`
