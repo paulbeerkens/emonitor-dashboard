@@ -72,7 +72,7 @@ function renderSummary(data) {
   $("effective-rate").textContent = pricing.effective_variable_rate_cents_per_kwh == null
     ? "—" : `${pricing.effective_variable_rate_cents_per_kwh.toFixed(2)} ¢/kWh`;
   $("current-cost-rate").textContent = pricing.current_cost_dollars_per_hour == null
-    ? "—" : `${money(pricing.current_cost_dollars_per_hour, 3)}/hr`;
+    ? "—" : money(pricing.current_cost_dollars_per_hour, 3);
   $("home-cost-24h").textContent = money(usage.cost_dollars);
   $("home-energy-24h").textContent = usage.energy_kwh == null
     ? "completed half-hour periods" : `${usage.energy_kwh.toFixed(2)} kWh of Main Power`;

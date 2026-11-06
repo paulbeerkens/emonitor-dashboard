@@ -82,6 +82,7 @@ Pi packages or privileged service access are required. Fan speed displays as
 unavailable if the installed fan or its driver does not expose an RPM sensor.
 
 The dashboard refreshes ComEd's public five-minute feed at most once every five
-minutes. Cost estimates add the bill-derived variable rate configured by
-`COMED_VARIABLE_ADDON_CENTS_PER_KWH`; fixed charges are intentionally excluded.
+minutes. Cost estimates add the bill-derived delivery and other usage-based rate
+configured by `COMED_VARIABLE_ADDON_CENTS_PER_KWH`; fixed charges are
+intentionally excluded.
 

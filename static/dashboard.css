@@ -99,7 +99,7 @@ footer { padding: 24px 4px 0; color: #6c806f; font-size: .72rem; text-align: cen
 .cost-facts strong { display: block; margin-bottom: 7px; color: #2e6f98; font-size: clamp(1.25rem, 2.5vw, 1.8rem); letter-spacing: -.04em; }
 .cost-facts small { font-size: .68rem; line-height: 1.35; }
 .cost-facts > div:nth-child(2) { background: linear-gradient(145deg, #eff9ff, #e3f5fb); }
-.cost-facts > div:nth-child(2) strong { color: var(--orange); font-size: clamp(1.65rem, 3.2vw, 2.45rem); }
+.cost-facts strong span { display: inline; color: inherit; }
 
 .burn-panel { margin-top: 14px; }
 .burn-chart-wrap { position: relative; height: 255px; margin-top: 16px; }
