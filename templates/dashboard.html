@@ -100,8 +100,16 @@
           </div>
           <dl class="pi-metrics">
             <div>
-              <dt>CPU</dt>
+              <dt>CPU temp</dt>
               <dd id="cpu-temperature">—</dd>
+            </div>
+            <div>
+              <dt>CPU use</dt>
+              <dd id="cpu-utilization">—</dd>
+            </div>
+            <div>
+              <dt>Memory</dt>
+              <dd id="memory-use">—</dd>
             </div>
             <div>
               <dt>Disk free</dt>
@@ -116,26 +124,32 @@
         </article>
       </section>
 
-      <section class="quality-strip" aria-labelledby="quality-title">
-        <div class="quality-heading">
-          <div>
-            <p class="eyebrow">Data quality</p>
-            <h2 id="quality-title">Missing readings</h2>
-          </div>
-          <p>Measured using the Main Power circuit</p>
-        </div>
-        <div class="quality-days" id="quality-days"></div>
-      </section>
-
       <section class="panel top-panel">
         <div class="section-heading">
           <div>
             <p class="eyebrow">Live ranking</p>
             <h2>Top five circuits</h2>
           </div>
-          <p>Choose any circuit to inspect its last 24 hours.</p>
+          <p>Green bars compare current power within this top five; the longest bar is the highest current user. Select a card to inspect it.</p>
         </div>
         <div class="circuit-grid" id="top-circuits" aria-live="polite"></div>
+      </section>
+
+      <section class="panel donut-panel">
+        <div class="section-heading">
+          <div>
+            <p class="eyebrow">Past 24 hours</p>
+            <h2>Where the circuits used energy</h2>
+          </div>
+          <p>Every named branch circuit is shown. Select a slice or legend item to open that circuit in the 15-second graph.</p>
+        </div>
+        <div class="donut-layout">
+          <div class="donut-wrap">
+            <svg id="circuit-donut" role="img" aria-label="Energy share by circuit over the last 24 hours"></svg>
+            <div class="tooltip" id="donut-tooltip" hidden></div>
+          </div>
+          <div class="donut-legend" id="donut-legend"></div>
+        </div>
       </section>
 
       <section class="panel chart-panel">
@@ -181,6 +195,17 @@
           </table>
         </div>
         <p class="coverage-note" id="cost-coverage"></p>
+      </section>
+
+      <section class="quality-strip" aria-labelledby="quality-title">
+        <div class="quality-heading">
+          <div>
+            <p class="eyebrow">Data quality</p>
+            <h2 id="quality-title">Missing readings</h2>
+          </div>
+          <p>Measured using the Main Power circuit</p>
+        </div>
+        <div class="quality-days" id="quality-days"></div>
       </section>
       <footer>Read-only dashboard · the collector remains the only database writer</footer>
     </main>

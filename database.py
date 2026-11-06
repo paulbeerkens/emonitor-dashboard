@@ -183,10 +183,10 @@ class DashboardDatabase:
           total["priced_energy_kwh"] += energy_kwh
           total["cost_dollars"] += cost
 
-    circuits = sorted(
+    all_circuits = sorted(
       circuit_totals.values(), key=lambda row: row["energy_kwh"], reverse=True
-    )[:20]
-    for row in circuits:
+    )
+    for row in all_circuits:
       if row["priced_energy_kwh"] == 0:
         row["cost_dollars"] = None
       row["energy_kwh"] = round(row["energy_kwh"], 4)
@@ -194,6 +194,7 @@ class DashboardDatabase:
         row["priced_energy_kwh"] / row["energy_kwh"] * 100, 1
       ) if row["energy_kwh"] else 0
       row.pop("priced_energy_kwh")
+    circuits = all_circuits[:20]
 
     # Add the open half-hour using the accumulator's integrated energy so far.
     current_average_power = None
@@ -239,6 +240,7 @@ class DashboardDatabase:
         home_priced_energy_kwh / home_energy_kwh * 100, 1
       ) if home_energy_kwh else 0,
       "circuits": circuits,
+      "circuit_breakdown": all_circuits,
     }
     return pricing, usage
 
@@ -362,7 +364,10 @@ class DashboardDatabase:
           }
           for reading in visible
         ),
-        key=lambda item: item["name"].casefold(),
+        key=lambda item: (
+          0 if item["name"].casefold() == "main power" else 1,
+          item["name"].casefold(),
+        ),
       )
 
       selectable_ids = {item["id"] for item in circuits}
@@ -419,6 +424,15 @@ class DashboardDatabase:
 
   @staticmethod
   def _default_circuit(readings: list[dict[str, Any]]) -> int | None:
+    main_power = next(
+      (
+        item for item in readings
+        if item["channel_name"].casefold() == "main power"
+      ),
+      None,
+    )
+    if main_power:
+      return main_power["channel_id"]
     candidates = [
       item for item in readings
       if item["channel_name"].casefold() not in SUMMARY_NAMES

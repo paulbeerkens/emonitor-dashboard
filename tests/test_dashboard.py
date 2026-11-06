@@ -85,6 +85,16 @@ def test_snapshot_returns_live_ranking_and_history(tmp_path):
   assert [point["watts"] for point in result["history"]] == [6390, 7100]
 
 
+def test_main_power_is_default_and_first_selectable_circuit(tmp_path):
+  path = tmp_path / "emonitor.db"
+  make_database(path)
+
+  result = DashboardDatabase(path).snapshot()
+
+  assert result["selected_circuit"]["name"] == "Main Power"
+  assert result["circuits"][0]["name"] == "Main Power"
+
+
 def test_snapshot_falls_back_to_checkpoint_before_sample_table_exists(tmp_path):
   path = tmp_path / "emonitor.db"
   make_database(path, include_samples=False)
@@ -135,13 +145,27 @@ def test_system_metrics_reads_pi_sysfs_values(tmp_path):
   fan = tmp_path / "class" / "hwmon" / "hwmon0"
   thermal.mkdir(parents=True)
   fan.mkdir(parents=True)
+  proc = tmp_path / "proc"
+  proc.mkdir()
   (thermal / "type").write_text("cpu-thermal\n", encoding="utf-8")
   (thermal / "temp").write_text("52750\n", encoding="utf-8")
   (fan / "fan1_input").write_text("3180\n", encoding="utf-8")
+  (proc / "stat").write_text("cpu  100 0 50 850 0 0 0 0\n", encoding="utf-8")
+  (proc / "meminfo").write_text(
+    "MemTotal:       8000000 kB\nMemAvailable:   6000000 kB\n",
+    encoding="utf-8",
+  )
 
-  result = SystemMetrics(sysfs_root=tmp_path, disk_path=tmp_path).snapshot()
+  metrics = SystemMetrics(
+    sysfs_root=tmp_path, proc_root=proc, disk_path=tmp_path
+  )
+  (proc / "stat").write_text("cpu  120 0 60 920 0 0 0 0\n", encoding="utf-8")
+  result = metrics.snapshot()
 
   assert result["cpu_temperature_c"] == 52.8
   assert result["fan_speed_rpm"] == 3180
+  assert result["cpu_utilization_percent"] == 30.0
+  assert result["memory_used_percent"] == 25.0
+  assert result["memory_used_bytes"] == 2_000_000 * 1024
   assert result["disk_free_bytes"] > 0
 

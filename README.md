@@ -18,6 +18,10 @@ to run as a separate application on the same Raspberry Pi 5.
 - a half-hour dollar-per-hour bar chart whose current slot is recalculated from
   the collector's in-progress energy accumulator every 15 seconds.
 - today's and yesterday's missing data in minutes and as a coverage percentage.
+- a clickable SiteSage-style donut showing the 24-hour energy share of every
+  named branch circuit;
+- Raspberry Pi CPU utilization and memory use alongside temperature, disk, and
+  fan health.
 
 Paired 240-volt channels do not need special dashboard logic. The collector
 combines reciprocal channel pairs before it writes `power_samples`, and this

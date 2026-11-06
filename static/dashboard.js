@@ -54,6 +54,10 @@ function renderSummary(data) {
   const system = data.system || {};
   $("cpu-temperature").textContent = system.cpu_temperature_c == null
     ? "—" : `${system.cpu_temperature_c.toFixed(1)} °C`;
+  $("cpu-utilization").textContent = system.cpu_utilization_percent == null
+    ? "—" : `${system.cpu_utilization_percent.toFixed(1)}%`;
+  $("memory-use").textContent = system.memory_used_percent == null
+    ? "—" : `${system.memory_used_percent.toFixed(1)}%`;
   $("disk-free").textContent = storage(system.disk_free_bytes);
   $("fan-speed").textContent = system.fan_speed_rpm == null
     ? "—" : `${number.format(system.fan_speed_rpm)} rpm`;
@@ -168,7 +172,11 @@ function renderBurnRate(data) {
     svg.append(bar); bars.push({ bar, x, y, item });
   });
 
-  const labelIndexes = [...new Set([0, Math.floor((history.length - 1) / 2), history.length - 1])];
+  const labelCount = width < 650 ? 4 : 7;
+  const labelIndexes = [...new Set(Array.from(
+    { length: labelCount },
+    (_, index) => Math.round(index * (history.length - 1) / (labelCount - 1))
+  ))];
   labelIndexes.forEach((index) => {
     const x = margin.left + (index + .5) * slotWidth;
     const label = make("text", { x, y: height - 10, class: "axis-label", "text-anchor": index === 0 ? "start" : index === history.length - 1 ? "end" : "middle" });
@@ -189,6 +197,80 @@ function renderBurnRate(data) {
     tooltip.textContent = `${label} · ${money(target.item.dollars_per_hour, 3)}/hr · ${watts(target.item.average_power_watts)} W avg`;
   };
   svg.onpointerleave = () => { $("burn-tooltip").hidden = true; };
+}
+
+function donutPath(centerX, centerY, outerRadius, innerRadius, startAngle, endAngle) {
+  const point = (radius, angle) => {
+    const radians = (angle - 90) * Math.PI / 180;
+    return { x: centerX + radius * Math.cos(radians), y: centerY + radius * Math.sin(radians) };
+  };
+  const outerStart = point(outerRadius, startAngle);
+  const outerEnd = point(outerRadius, endAngle);
+  const innerEnd = point(innerRadius, endAngle);
+  const innerStart = point(innerRadius, startAngle);
+  const large = endAngle - startAngle > 180 ? 1 : 0;
+  return [
+    `M ${outerStart.x} ${outerStart.y}`,
+    `A ${outerRadius} ${outerRadius} 0 ${large} 1 ${outerEnd.x} ${outerEnd.y}`,
+    `L ${innerEnd.x} ${innerEnd.y}`,
+    `A ${innerRadius} ${innerRadius} 0 ${large} 0 ${innerStart.x} ${innerStart.y}`,
+    "Z",
+  ].join(" ");
+}
+
+function renderDonut(data) {
+  const svg = $("circuit-donut");
+  const legend = $("donut-legend");
+  const rows = (data.last_24_hours?.circuit_breakdown || []).filter((row) => row.energy_kwh > 0);
+  svg.replaceChildren(); legend.replaceChildren();
+  if (!rows.length) return;
+  const total = rows.reduce((sum, row) => sum + row.energy_kwh, 0);
+  const ns = "http://www.w3.org/2000/svg";
+  const palette = ["#68bd32", "#23a8d8", "#f5a623", "#ec6b2d", "#8b67c8", "#39b9a5", "#d94f70", "#9fbe2f", "#4c82d1", "#dc8c2f"];
+  svg.setAttribute("viewBox", "0 0 240 240");
+  let angle = 0;
+  rows.forEach((row, index) => {
+    const sweep = row.energy_kwh / total * 360;
+    const color = index < palette.length
+      ? palette[index]
+      : `hsl(${Math.round(index * 137.508) % 360} 62% 48%)`;
+    const path = document.createElementNS(ns, "path");
+    path.setAttribute("d", donutPath(120, 120, 104, 59, angle, Math.min(359.999, angle + sweep)));
+    path.setAttribute("fill", color);
+    path.setAttribute("class", "donut-slice");
+    path.setAttribute("tabindex", "0");
+    path.setAttribute("aria-label", `${row.channel_name}, ${row.energy_kwh.toFixed(2)} kilowatt-hours`);
+    const showTooltip = () => {
+      const tooltip = $("donut-tooltip");
+      tooltip.hidden = false;
+      tooltip.style.left = "50%"; tooltip.style.top = "50%";
+      tooltip.textContent = `${row.channel_name} · ${row.energy_kwh.toFixed(2)} kWh · ${(row.energy_kwh / total * 100).toFixed(1)}%`;
+    };
+    path.addEventListener("pointerenter", showTooltip);
+    path.addEventListener("focus", showTooltip);
+    path.addEventListener("pointerleave", () => { $("donut-tooltip").hidden = true; });
+    path.addEventListener("blur", () => { $("donut-tooltip").hidden = true; });
+    path.addEventListener("click", () => selectCircuit(row.channel_id));
+    svg.append(path);
+    angle += sweep;
+
+    const button = document.createElement("button");
+    button.type = "button";
+    button.className = "donut-legend-item";
+    button.innerHTML = `<span class="donut-swatch" style="background:${color}"></span><span class="donut-name"></span><strong>${row.energy_kwh.toFixed(2)} kWh</strong><small>${(row.energy_kwh / total * 100).toFixed(1)}%</small>`;
+    button.querySelector(".donut-name").textContent = row.channel_name;
+    button.addEventListener("click", () => selectCircuit(row.channel_id));
+    legend.append(button);
+  });
+  const totalText = document.createElementNS(ns, "text");
+  totalText.setAttribute("x", "120"); totalText.setAttribute("y", "114");
+  totalText.setAttribute("text-anchor", "middle"); totalText.setAttribute("class", "donut-total");
+  totalText.textContent = total.toFixed(1);
+  const unitText = document.createElementNS(ns, "text");
+  unitText.setAttribute("x", "120"); unitText.setAttribute("y", "136");
+  unitText.setAttribute("text-anchor", "middle"); unitText.setAttribute("class", "donut-unit");
+  unitText.textContent = "branch kWh";
+  svg.append(totalText, unitText);
 }
 
 function renderCircuits(data) {
@@ -321,6 +403,7 @@ async function loadDashboard() {
     renderCosts(data);
     renderDataQuality(data);
     renderBurnRate(data);
+    renderDonut(data);
   } catch (error) {
     setStatus(null, error);
     $("updated-time").textContent = error.message;
@@ -334,7 +417,7 @@ function selectCircuit(circuitId) {
 
 $("circuit-select").addEventListener("change", (event) => selectCircuit(Number(event.target.value)));
 window.addEventListener("resize", () => {
-  if (lastPayload) { renderChart(lastPayload); renderBurnRate(lastPayload); }
+  if (lastPayload) { renderChart(lastPayload); renderBurnRate(lastPayload); renderDonut(lastPayload); }
 });
 loadDashboard();
 setInterval(loadDashboard, REFRESH_MS);
