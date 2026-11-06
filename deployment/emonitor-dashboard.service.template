@@ -1,0 +1,20 @@
+[Unit]
+Description=eMonitor live dashboard
+After=network-online.target emonitor.service
+Wants=network-online.target
+
+[Service]
+Type=simple
+User=__USER__
+Group=__GROUP__
+WorkingDirectory=__PROJECT_DIR__
+EnvironmentFile=__PROJECT_DIR__/.env
+ExecStart=__PROJECT_DIR__/.venv/bin/python __PROJECT_DIR__/app.py
+Restart=on-failure
+RestartSec=5
+PrivateTmp=true
+NoNewPrivileges=true
+
+[Install]
+WantedBy=multi-user.target
+
