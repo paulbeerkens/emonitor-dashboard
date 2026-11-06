@@ -1,7 +1,10 @@
 const REFRESH_MS = 15_000;
 let selectedCircuitId = null;
 let selectedUsagePeriod = "24h";
+let selectedSolarPeriod = "14d";
+let solarHistoryLive = true;
 let lastPayload = null;
+let lastSolarHistory = null;
 
 const number = new Intl.NumberFormat("en-US", { maximumFractionDigits: 0 });
 const $ = (id) => document.getElementById(id);
@@ -148,7 +151,10 @@ function renderSolarBarChart(svgId, tooltipId, rows, mode) {
       svg.append(label);
     });
   } else {
-    [0, 3, 6, 9, rows.length - 1].forEach((index) => {
+    [...new Set(Array.from(
+      { length: Math.min(5, rows.length) },
+      (_, tick) => Math.round(tick * (rows.length - 1) / Math.max(Math.min(5, rows.length) - 1, 1))
+    ))].forEach((index) => {
       const label = make("text", {
         x: margin.left + (index + .5) * slotWidth,
         y: height - 9,
@@ -190,34 +196,14 @@ function renderSolar(data) {
   const solar = data.solar || {};
   const total = solar.today_energy_kwh;
   $("solar-today-total").textContent = total == null ? "—" : total.toFixed(2);
-  $("solar-daily-latest").textContent = total == null ? "—" : total.toFixed(2);
-  const dailyLegend = $("solar-daily-legend");
-  const dailyLegendSwatch = $("solar-daily-legend-swatch");
-  if (solar.daylight_status === "after_sunset") {
-    dailyLegend.textContent = "Today · production complete";
-    dailyLegendSwatch.className = "solar-swatch";
-  } else if (solar.daylight_status === "before_sunrise") {
-    dailyLegend.textContent = "Today · awaiting sunrise";
-    dailyLegendSwatch.className = "solar-swatch";
-  } else {
-    dailyLegend.textContent = "Today · still updating";
-    dailyLegendSwatch.className = "solar-swatch current";
-  }
   renderSolarBarChart(
     "solar-today-chart", "solar-today-tooltip", solar.today_half_hours || [], "half-hour"
-  );
-  renderSolarBarChart(
-    "solar-daily-chart", "solar-daily-tooltip", solar.daily || [], "daily"
   );
   $("solar-yesterday").textContent = solar.yesterday_by_now_kwh == null
     ? "—" : `${solar.yesterday_by_now_kwh.toFixed(2)} kWh`;
   const difference = solar.difference_percent;
   $("solar-difference").textContent = difference == null
     ? "—" : `${difference >= 0 ? "+" : ""}${difference.toFixed(1)}%`;
-  const best = solar.best_day;
-  $("solar-best-day").textContent = best
-    ? `${best.energy_kwh.toFixed(2)} kWh · ${best.label} · ${best.coverage_percent.toFixed(1)}% coverage`
-    : "—";
   const timeLabel = (timestamp) => new Date(timestamp).toLocaleTimeString([], {
     hour: "numeric", minute: "2-digit"
   });
@@ -232,6 +218,83 @@ function renderSolar(data) {
   $("solar-quality").textContent = today
     ? `Today’s solar data: ${today.coverage_percent.toFixed(1)}% coverage · ${today.missing_minutes.toFixed(1)} minutes missing (${coverageWindow})`
     : "Solar data coverage unavailable";
+}
+
+function populateSolarPeriods(months, years) {
+  const select = $("solar-period");
+  const existing = new Set(Array.from(select.options).map((option) => option.value));
+  const addGroup = (label, items, prefix) => {
+    const missing = items.filter((item) => !existing.has(`${prefix}${item.value || item}`));
+    if (!missing.length) return;
+    const group = document.createElement("optgroup");
+    group.label = label;
+    missing.forEach((item) => {
+      const option = document.createElement("option");
+      option.value = `${prefix}${item.value || item}`;
+      option.textContent = item.label || item;
+      group.append(option);
+    });
+    select.append(group);
+  };
+  addGroup("Specific month", months, "month:");
+  addGroup("Specific year", years, "year:");
+  select.value = selectedSolarPeriod;
+}
+
+function renderSolarHistory(data) {
+  lastSolarHistory = data;
+  solarHistoryLive = Boolean(data.live);
+  const bars = data.bars || [];
+  $("solar-history-label").textContent = data.period_label || "Selected period";
+  $("solar-history-total").textContent = data.total_energy_kwh == null
+    ? "—" : data.total_energy_kwh.toFixed(2);
+  $("solar-completed-label").textContent = data.granularity === "month"
+    ? "Completed month" : "Completed day";
+  renderSolarBarChart(
+    "solar-daily-chart", "solar-daily-tooltip", bars, "daily"
+  );
+  const current = bars.find((item) => item.current);
+  const legend = $("solar-daily-legend");
+  const swatch = $("solar-daily-legend-swatch");
+  if (current) {
+    legend.textContent = data.granularity === "month"
+      ? "Current month · still accumulating" : "Today · still updating";
+    swatch.className = "solar-swatch current";
+  } else {
+    legend.textContent = data.contains_today && data.granularity === "day"
+      ? data.daylight_status === "before_sunrise"
+        ? "Today · awaiting sunrise"
+        : "Today · production complete"
+      : "Selected period is complete";
+    swatch.className = "solar-swatch";
+  }
+  $("solar-daily-chart").setAttribute(
+    "aria-label",
+    `${data.granularity === "month" ? "Monthly" : "Daily"} solar production for ${data.period_label}`
+  );
+  const best = bars.reduce(
+    (winner, item) => !winner || item.energy_kwh > winner.energy_kwh ? item : winner,
+    null
+  );
+  $("solar-best-day").textContent = best
+    ? `${best.energy_kwh.toFixed(2)} kWh · ${best.label} · ${best.coverage_percent.toFixed(1)}% coverage`
+    : "—";
+  populateSolarPeriods(data.available_months || [], data.available_years || []);
+}
+
+async function loadSolarHistory() {
+  try {
+    const response = await fetch(
+      `/api/solar-history?period=${encodeURIComponent(selectedSolarPeriod)}`,
+      { cache: "no-store" }
+    );
+    if (!response.ok) {
+      throw new Error((await response.json()).error || "Solar history request failed");
+    }
+    renderSolarHistory(await response.json());
+  } catch (error) {
+    $("solar-history-label").textContent = error.message;
+  }
 }
 
 function renderCosts(data) {
@@ -610,6 +673,10 @@ $("usage-period").addEventListener("change", (event) => {
   selectedUsagePeriod = event.target.value;
   loadCircuitUsage();
 });
+$("solar-period").addEventListener("change", (event) => {
+  selectedSolarPeriod = event.target.value;
+  loadSolarHistory();
+});
 window.addEventListener("resize", () => {
   if (lastPayload) {
     renderChart(lastPayload);
@@ -617,11 +684,14 @@ window.addEventListener("resize", () => {
     renderDonut(lastPayload);
     renderSolar(lastPayload);
   }
+  if (lastSolarHistory) renderSolarHistory(lastSolarHistory);
 });
 loadDashboard();
 loadCircuitUsage();
+loadSolarHistory();
 setInterval(() => {
   loadDashboard();
   if (selectedUsagePeriod === "24h") loadCircuitUsage();
+  if (solarHistoryLive) loadSolarHistory();
 }, REFRESH_MS);
 

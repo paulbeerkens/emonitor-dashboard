@@ -188,6 +188,24 @@ def test_api_returns_dashboard_payload(tmp_path):
   invalid_response = client.get("/api/circuit-usage?period=forever")
   assert invalid_response.status_code == 400
 
+  solar_response = client.get("/api/solar-history?period=14d")
+  assert solar_response.status_code == 200
+  solar_history = solar_response.get_json()
+  assert solar_history["granularity"] == "day"
+  assert len(solar_history["bars"]) == 14
+  assert solar_history["bars"][-1]["energy_kwh"] == pytest.approx(0.35)
+
+  monthly_response = client.get("/api/solar-history?period=12m")
+  assert monthly_response.status_code == 200
+  assert monthly_response.get_json()["granularity"] == "month"
+
+  current_month = datetime.now(timezone.utc).strftime("%Y-%m")
+  assert client.get(
+    f"/api/solar-history?period=month:{current_month}"
+  ).status_code == 200
+  assert client.get("/api/solar-history?period=year:2026").status_code == 200
+  assert client.get("/api/solar-history?period=forever").status_code == 400
+
 
 def test_system_metrics_reads_pi_sysfs_values(tmp_path):
   thermal = tmp_path / "class" / "thermal" / "thermal_zone0"

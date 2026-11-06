@@ -382,6 +382,202 @@ class DashboardDatabase:
         "available_months": self._available_months(connection),
       }
 
+  def solar_history(self, period: str = "14d") -> dict[str, Any]:
+    """Return daily or monthly solar-production bars for a selected period."""
+    now = datetime.now(timezone.utc)
+    local_now = now.astimezone(CHICAGO)
+    today = local_now.date()
+    granularity = "day"
+    live = period in {"14d", "30d"}
+    if period in {"14d", "30d"}:
+      day_count = 14 if period == "14d" else 30
+      start_date = today - timedelta(days=day_count - 1)
+      local_start = datetime.combine(start_date, datetime.min.time(), CHICAGO)
+      local_end = datetime.combine(today + timedelta(days=1), datetime.min.time(), CHICAGO)
+      label = f"Last {day_count} days"
+    elif period == "12m":
+      month_index = local_now.year * 12 + local_now.month - 1 - 11
+      start_year, start_month_index = divmod(month_index, 12)
+      local_start = datetime(start_year, start_month_index + 1, 1, tzinfo=CHICAGO)
+      local_end = self._next_month(datetime(
+        local_now.year, local_now.month, 1, tzinfo=CHICAGO
+      ))
+      label = "Last 12 months"
+      granularity = "month"
+      live = False
+    elif re.fullmatch(r"month:\d{4}-\d{2}", period):
+      value = period.removeprefix("month:")
+      year, month = (int(item) for item in value.split("-"))
+      if not 1 <= month <= 12:
+        raise ValueError("Unknown solar-history period")
+      local_start = datetime(year, month, 1, tzinfo=CHICAGO)
+      local_end = self._next_month(local_start)
+      label = local_start.strftime("%B %Y")
+    elif re.fullmatch(r"year:\d{4}", period):
+      year = int(period.removeprefix("year:"))
+      local_start = datetime(year, 1, 1, tzinfo=CHICAGO)
+      local_end = datetime(year + 1, 1, 1, tzinfo=CHICAGO)
+      label = str(year)
+      granularity = "month"
+    else:
+      raise ValueError("Unknown solar-history period")
+
+    with self._connect() as connection:
+      metadata = self._metadata(connection)
+      solar_ids = {
+        channel_id for channel_id, name in metadata.items()
+        if name.casefold() == "solar panels"
+      }
+      energy_by_date: dict[Any, float] = {}
+      measured_by_slot: dict[tuple[Any, int, int], float] = {}
+      if solar_ids and self._table_exists(connection, "channel_usage"):
+        placeholders = ",".join("?" for _ in solar_ids)
+        rows = connection.execute(
+          f"SELECT period_start, energy_wh, measured_seconds FROM channel_usage "
+          f"WHERE id IN ({placeholders}) AND period_start>=? AND period_start<? "
+          "ORDER BY period_start",
+          (
+            *sorted(solar_ids),
+            local_start.astimezone(timezone.utc).isoformat(),
+            local_end.astimezone(timezone.utc).isoformat(),
+          ),
+        )
+        for row in rows:
+          sampled_at = datetime.fromisoformat(row["period_start"]).astimezone(CHICAGO)
+          local_date = sampled_at.date()
+          energy_by_date[local_date] = (
+            energy_by_date.get(local_date, 0.0) + float(row["energy_wh"]) / 1000
+          )
+          key = (local_date, sampled_at.hour, sampled_at.minute)
+          measured_by_slot[key] = max(
+            measured_by_slot.get(key, 0.0), float(row["measured_seconds"])
+          )
+
+      if (
+        solar_ids
+        and local_start.date() <= today < local_end.date()
+        and self._table_exists(connection, "collector_state")
+      ):
+        row = connection.execute(
+          "SELECT state_json FROM collector_state WHERE id=1"
+        ).fetchone()
+        if row:
+          state = json.loads(row["state_json"])
+          state_start = state.get("period_start")
+          if state_start:
+            sampled_at = datetime.fromisoformat(state_start).astimezone(CHICAGO)
+            if sampled_at.date() == today:
+              energy = state.get("energy_watt_seconds", {})
+              measured = state.get("measured_seconds", {})
+              energy_by_date[today] = energy_by_date.get(today, 0.0) + sum(
+                float(energy.get(str(channel_id), 0)) for channel_id in solar_ids
+              ) / 3_600_000
+              key = (today, sampled_at.hour, 0 if sampled_at.minute < 30 else 30)
+              measured_by_slot[key] = max(
+                measured_by_slot.get(key, 0.0),
+                max(
+                  (float(measured.get(str(channel_id), 0)) for channel_id in solar_ids),
+                  default=0.0,
+                ),
+              )
+
+      final_date = min(local_end.date() - timedelta(days=1), today)
+      daily = []
+      cursor = local_start.date()
+      while cursor <= final_date:
+        sunrise, sunset, window_start, window_end = self._solar_window(cursor)
+        observed_end = (
+          min(window_end, max(window_start, local_now))
+          if cursor == today else window_end
+        )
+        expected_seconds = max(0.0, (observed_end - window_start).total_seconds())
+        measured_seconds = sum(
+          seconds for (date, hour, minute), seconds in measured_by_slot.items()
+          if date == cursor and window_start <= datetime.combine(
+            date, datetime.min.time(), CHICAGO
+          ).replace(hour=hour, minute=minute) < window_end
+        )
+        measured_seconds = min(measured_seconds, expected_seconds)
+        solar_active = (
+          cursor == today
+          and sunrise is not None
+          and sunset is not None
+          and sunrise <= local_now < sunset
+        )
+        daily.append({
+          "date": cursor.isoformat(),
+          "label": cursor.strftime("%a %-m/%-d"),
+          "energy_kwh": round(energy_by_date.get(cursor, 0.0), 4),
+          "coverage_percent": round(
+            measured_seconds / expected_seconds * 100, 1
+          ) if expected_seconds else 100.0,
+          "missing_minutes": round(
+            max(0.0, expected_seconds - measured_seconds) / 60, 1
+          ),
+          "expected_minutes": round(expected_seconds / 60, 1),
+          "current": solar_active,
+        })
+        cursor += timedelta(days=1)
+
+      if granularity == "day":
+        bars = daily
+      else:
+        monthly: dict[str, dict[str, Any]] = {}
+        for item in daily:
+          month = item["date"][:7]
+          total = monthly.setdefault(month, {
+            "month": month,
+            "label": datetime.strptime(month, "%Y-%m").strftime("%b %Y"),
+            "energy_kwh": 0.0,
+            "expected_minutes": 0.0,
+            "missing_minutes": 0.0,
+            "current": month == today.strftime("%Y-%m"),
+          })
+          total["energy_kwh"] += item["energy_kwh"]
+          total["expected_minutes"] += item["expected_minutes"]
+          total["missing_minutes"] += item["missing_minutes"]
+        bars = []
+        for item in monthly.values():
+          expected = item.pop("expected_minutes")
+          item["energy_kwh"] = round(item["energy_kwh"], 4)
+          item["missing_minutes"] = round(item["missing_minutes"], 1)
+          item["coverage_percent"] = round(
+            (expected - item["missing_minutes"]) / expected * 100, 1
+          ) if expected else 100.0
+          bars.append(item)
+
+      months = self._available_months(connection)
+      years = sorted({item["value"][:4] for item in months}, reverse=True)
+      today_sunrise, today_sunset, _, _ = self._solar_window(today)
+      if today_sunrise and local_now < today_sunrise:
+        daylight_status = "before_sunrise"
+      elif today_sunset and local_now >= today_sunset:
+        daylight_status = "after_sunset"
+      else:
+        daylight_status = "daylight"
+      contains_today = local_start.date() <= today < local_end.date()
+      live = live and daylight_status == "daylight"
+      return {
+        "period": period,
+        "period_label": label,
+        "granularity": granularity,
+        "live": live,
+        "contains_today": contains_today,
+        "daylight_status": daylight_status,
+        "bars": bars,
+        "total_energy_kwh": round(sum(item["energy_kwh"] for item in bars), 4),
+        "available_months": months,
+        "available_years": years,
+      }
+
+  @staticmethod
+  def _next_month(value: datetime) -> datetime:
+    return (
+      datetime(value.year + 1, 1, 1, tzinfo=value.tzinfo)
+      if value.month == 12
+      else datetime(value.year, value.month + 1, 1, tzinfo=value.tzinfo)
+    )
+
   def _solar_summary(
     self,
     connection: sqlite3.Connection,
