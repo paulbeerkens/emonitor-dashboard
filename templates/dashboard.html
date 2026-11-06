@@ -124,6 +124,35 @@
         </article>
       </section>
 
+      <section class="solar-charts" aria-label="Solar production history">
+        <article class="panel solar-chart-panel">
+          <div class="solar-chart-heading">
+            <div>
+              <p class="eyebrow">Today · 7 AM–7 PM</p>
+              <h2>Solar production</h2>
+            </div>
+            <p><strong id="solar-today-total">—</strong><span> kWh today</span></p>
+          </div>
+          <div class="solar-chart-wrap">
+            <svg id="solar-today-chart" role="img" aria-label="Today's half-hour solar production from 7 AM through 7 PM"></svg>
+            <div class="tooltip" id="solar-today-tooltip" hidden></div>
+          </div>
+        </article>
+        <article class="panel solar-chart-panel">
+          <div class="solar-chart-heading">
+            <div>
+              <p class="eyebrow">Last 14 days</p>
+              <h2>Daily solar production</h2>
+            </div>
+            <p><strong id="solar-daily-latest">—</strong><span> kWh today</span></p>
+          </div>
+          <div class="solar-chart-wrap">
+            <svg id="solar-daily-chart" role="img" aria-label="Daily solar production for the last 14 days"></svg>
+            <div class="tooltip" id="solar-daily-tooltip" hidden></div>
+          </div>
+        </article>
+      </section>
+
       <section class="panel top-panel">
         <div class="section-heading">
           <div>

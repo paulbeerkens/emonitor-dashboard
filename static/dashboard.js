@@ -83,6 +83,111 @@ function renderSummary(data) {
   setStatus(data.sampled_at_ms);
 }
 
+function renderSolarBarChart(svgId, tooltipId, rows, mode) {
+  const svg = $(svgId);
+  const tooltip = $(tooltipId);
+  svg.replaceChildren();
+  if (!rows.length) return;
+  const width = Math.max(svg.clientWidth, 360);
+  const height = Math.max(svg.clientHeight, 220);
+  const margin = { top: 12, right: 12, bottom: 34, left: 48 };
+  const plotWidth = width - margin.left - margin.right;
+  const plotHeight = height - margin.top - margin.bottom;
+  const maximum = Math.max(...rows.map((row) => row.energy_kwh), .1) * 1.12;
+  const ns = "http://www.w3.org/2000/svg";
+  const make = (name, attributes = {}) => {
+    const node = document.createElementNS(ns, name);
+    Object.entries(attributes).forEach(([key, value]) => node.setAttribute(key, value));
+    return node;
+  };
+  svg.setAttribute("viewBox", `0 0 ${width} ${height}`);
+  for (let tick = 0; tick <= 4; tick += 1) {
+    const y = margin.top + tick / 4 * plotHeight;
+    svg.append(make("line", {
+      x1: margin.left, y1: y, x2: width - margin.right, y2: y, class: "grid-line"
+    }));
+    const label = make("text", {
+      x: margin.left - 8, y: y + 4, class: "axis-label", "text-anchor": "end"
+    });
+    label.textContent = `${(maximum * (1 - tick / 4)).toFixed(1)} kWh`;
+    svg.append(label);
+  }
+
+  const slotWidth = plotWidth / rows.length;
+  const barWidth = Math.max(3, slotWidth * .72);
+  const bars = [];
+  rows.forEach((row, index) => {
+    const barHeight = row.energy_kwh / maximum * plotHeight;
+    const x = margin.left + index * slotWidth + (slotWidth - barWidth) / 2;
+    const y = margin.top + plotHeight - barHeight;
+    const classes = ["solar-bar"];
+    if (row.future) classes.push("future");
+    if (row.current) classes.push("current");
+    const bar = make("rect", {
+      x, y, width: barWidth, height: Math.max(row.future ? 1 : 2, barHeight),
+      rx: Math.min(3, barWidth / 3), class: classes.join(" ")
+    });
+    svg.append(bar);
+    bars.push({ x, y, row });
+  });
+
+  if (mode === "half-hour") {
+    [0, 6, 12, 18, 24].forEach((boundary) => {
+      const first = rows[0].period_start_ms;
+      const timestamp = first + boundary * 30 * 60 * 1000;
+      const label = make("text", {
+        x: margin.left + boundary / rows.length * plotWidth,
+        y: height - 9,
+        class: "axis-label",
+        "text-anchor": boundary === 0 ? "start" : boundary === rows.length ? "end" : "middle",
+      });
+      label.textContent = new Date(timestamp).toLocaleTimeString([], { hour: "numeric" });
+      svg.append(label);
+    });
+  } else {
+    [0, 3, 6, 9, rows.length - 1].forEach((index) => {
+      const label = make("text", {
+        x: margin.left + (index + .5) * slotWidth,
+        y: height - 9,
+        class: "axis-label",
+        "text-anchor": index === 0 ? "start" : index === rows.length - 1 ? "end" : "middle",
+      });
+      label.textContent = rows[index].label;
+      svg.append(label);
+    });
+  }
+
+  svg.onpointermove = (event) => {
+    const rect = svg.getBoundingClientRect();
+    const chartX = (event.clientX - rect.left) / rect.width * width;
+    const index = Math.max(0, Math.min(
+      rows.length - 1, Math.floor((chartX - margin.left) / slotWidth)
+    ));
+    const target = bars[index];
+    tooltip.hidden = false;
+    tooltip.style.left = `${(target.x + barWidth / 2) / width * 100}%`;
+    tooltip.style.top = `${target.y / height * 100}%`;
+    const label = mode === "half-hour"
+      ? new Date(target.row.period_start_ms).toLocaleTimeString([], { hour: "numeric", minute: "2-digit" })
+      : target.row.label;
+    tooltip.textContent = `${label} · ${target.row.energy_kwh.toFixed(3)} kWh${target.row.current ? " · updating" : ""}`;
+  };
+  svg.onpointerleave = () => { tooltip.hidden = true; };
+}
+
+function renderSolar(data) {
+  const solar = data.solar || {};
+  const total = solar.today_energy_kwh;
+  $("solar-today-total").textContent = total == null ? "—" : total.toFixed(2);
+  $("solar-daily-latest").textContent = total == null ? "—" : total.toFixed(2);
+  renderSolarBarChart(
+    "solar-today-chart", "solar-today-tooltip", solar.today_half_hours || [], "half-hour"
+  );
+  renderSolarBarChart(
+    "solar-daily-chart", "solar-daily-tooltip", solar.daily || [], "daily"
+  );
+}
+
 function renderCosts(data) {
   const rows = data.circuits || [];
   const body = $("cost-circuits");
@@ -442,6 +547,7 @@ async function loadDashboard() {
     renderDataQuality(data);
     renderBurnRate(data);
     renderDonut(data);
+    renderSolar(data);
   } catch (error) {
     setStatus(null, error);
     $("updated-time").textContent = error.message;
@@ -459,7 +565,12 @@ $("usage-period").addEventListener("change", (event) => {
   loadCircuitUsage();
 });
 window.addEventListener("resize", () => {
-  if (lastPayload) { renderChart(lastPayload); renderBurnRate(lastPayload); renderDonut(lastPayload); }
+  if (lastPayload) {
+    renderChart(lastPayload);
+    renderBurnRate(lastPayload);
+    renderDonut(lastPayload);
+    renderSolar(lastPayload);
+  }
 });
 loadDashboard();
 loadCircuitUsage();

@@ -40,7 +40,17 @@ def make_database(path, include_samples=True):
     {"channel_id": 5, "channel_name": "Car Charger", "power_watts": 7100},
     {"channel_id": 7, "channel_name": "Solar Panels", "power_watts": 500},
   ]
-  state = {"last_sample_time": now.isoformat(), "last_readings": readings}
+  current_period_start = now.replace(
+    minute=0 if now.minute < 30 else 30, second=0, microsecond=0
+  )
+  state = {
+    "last_sample_time": now.isoformat(),
+    "last_readings": readings,
+    "period_start": current_period_start.isoformat(),
+    "period_end": (current_period_start + timedelta(minutes=30)).isoformat(),
+    "measured_seconds": {"7": 720},
+    "energy_watt_seconds": {"7": 360_000},
+  }
   connection.execute(
     "INSERT INTO collector_state VALUES (1, ?, ?)",
     (json.dumps(state), now.isoformat()),
@@ -53,6 +63,7 @@ def make_database(path, include_samples=True):
       (period_start.isoformat(), period_end.isoformat(), 1, 450, 1800, 900),
       (period_start.isoformat(), period_end.isoformat(), 3, 60, 1800, 120),
       (period_start.isoformat(), period_end.isoformat(), 5, 3550, 1800, 7100),
+      (period_start.isoformat(), period_end.isoformat(), 7, 250, 1800, 500),
     ],
   )
   if include_samples:
@@ -83,6 +94,9 @@ def test_snapshot_returns_live_ranking_and_history(tmp_path):
   assert result["top_circuits"][0]["channel_name"] == "Car Charger"
   assert result["selected_circuit"] == {"id": 5, "name": "Car Charger"}
   assert [point["watts"] for point in result["history"]] == [6390, 7100]
+  assert result["solar"]["today_energy_kwh"] == pytest.approx(0.35)
+  assert len(result["solar"]["today_half_hours"]) == 24
+  assert len(result["solar"]["daily"]) == 14
 
 
 def test_main_power_is_default_and_first_selectable_circuit(tmp_path):

@@ -371,6 +371,104 @@ class DashboardDatabase:
         "available_months": self._available_months(connection),
       }
 
+  def _solar_summary(
+    self,
+    connection: sqlite3.Connection,
+    metadata: dict[int, str],
+    now: datetime,
+  ) -> dict[str, Any]:
+    """Build today's half-hour and recent daily solar-production totals."""
+    solar_ids = {
+      channel_id for channel_id, name in metadata.items()
+      if name.casefold() == "solar panels"
+    }
+    local_now = now.astimezone(CHICAGO)
+    today = local_now.date()
+    first_day = today - timedelta(days=13)
+    query_start = datetime.combine(
+      first_day, datetime.min.time(), CHICAGO
+    ).astimezone(timezone.utc)
+    query_end = datetime.combine(
+      today + timedelta(days=1), datetime.min.time(), CHICAGO
+    ).astimezone(timezone.utc)
+    daily_energy = {
+      first_day + timedelta(days=offset): 0.0 for offset in range(14)
+    }
+    half_hour_energy: dict[datetime, float] = {}
+
+    if solar_ids and self._table_exists(connection, "channel_usage"):
+      placeholders = ",".join("?" for _ in solar_ids)
+      rows = connection.execute(
+        f"SELECT period_start, energy_wh FROM channel_usage "
+        f"WHERE id IN ({placeholders}) AND period_start>=? AND period_start<? "
+        "ORDER BY period_start",
+        (*sorted(solar_ids), query_start.isoformat(), query_end.isoformat()),
+      )
+      for row in rows:
+        period_start = datetime.fromisoformat(row["period_start"]).astimezone(CHICAGO)
+        energy_kwh = float(row["energy_wh"]) / 1000
+        local_date = period_start.date()
+        if local_date in daily_energy:
+          daily_energy[local_date] += energy_kwh
+        if local_date == today:
+          slot = period_start.replace(second=0, microsecond=0)
+          half_hour_energy[slot] = half_hour_energy.get(slot, 0.0) + energy_kwh
+
+    current_start: datetime | None = None
+    current_energy_kwh = 0.0
+    if solar_ids and self._table_exists(connection, "collector_state"):
+      row = connection.execute(
+        "SELECT state_json FROM collector_state WHERE id=1"
+      ).fetchone()
+      if row:
+        state = json.loads(row["state_json"])
+        if state.get("period_start"):
+          current_start = datetime.fromisoformat(
+            state["period_start"]
+          ).astimezone(CHICAGO)
+        energy = state.get("energy_watt_seconds", {})
+        current_energy_kwh = sum(
+          float(energy.get(str(channel_id), 0)) for channel_id in solar_ids
+        ) / 3_600_000
+    if current_start and current_start.date() == today:
+      current_start = current_start.replace(
+        minute=0 if current_start.minute < 30 else 30,
+        second=0,
+        microsecond=0,
+      )
+      daily_energy[today] += current_energy_kwh
+      half_hour_energy[current_start] = (
+        half_hour_energy.get(current_start, 0.0) + current_energy_kwh
+      )
+
+    solar_day_start = datetime.combine(today, datetime.min.time(), CHICAGO).replace(
+      hour=7
+    )
+    half_hours = []
+    for offset in range(24):
+      slot_start = solar_day_start + timedelta(minutes=30 * offset)
+      half_hours.append({
+        "period_start_ms": round(slot_start.timestamp() * 1000),
+        "energy_kwh": round(half_hour_energy.get(slot_start, 0.0), 4),
+        "current": current_start == slot_start,
+        "future": slot_start > local_now,
+      })
+
+    days = []
+    for local_date, energy_kwh in daily_energy.items():
+      days.append({
+        "date": local_date.isoformat(),
+        "label": local_date.strftime("%a %-m/%-d"),
+        "energy_kwh": round(energy_kwh, 4),
+        "current": local_date == today,
+      })
+    return {
+      "today_date": today.isoformat(),
+      "today_energy_kwh": round(daily_energy[today], 4),
+      "today_half_hours": half_hours,
+      "daily": days,
+    }
+
   def _data_quality(
     self,
     connection: sqlite3.Connection,
@@ -524,6 +622,7 @@ class DashboardDatabase:
         variable_addon_cents_per_kwh,
       )
       data_quality = self._data_quality(connection, metadata, now)
+      solar = self._solar_summary(connection, metadata, now)
 
     top_circuits = sorted(
       (
@@ -546,6 +645,7 @@ class DashboardDatabase:
       "history_available": has_samples,
       "pricing": pricing,
       "last_24_hours": last_24_hours,
+      "solar": solar,
       "data_quality": data_quality,
     }
 
