@@ -1,0 +1,190 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+    <meta name="theme-color" content="#071a23">
+    <title>Home Energy · Live</title>
+    <link rel="stylesheet" href="{{ url_for('static', filename='dashboard.css') }}">
+    <script>
+      if (window.location.protocol === "file:") {
+        window.addEventListener("DOMContentLoaded", () => {
+          document.body.innerHTML = `
+            <main style="max-width:720px;margin:10vh auto;padding:40px;border:1px solid #b8d79d;border-radius:24px;background:#fff;box-shadow:0 20px 55px #56774433;font-family:system-ui;color:#17342a">
+              <p style="margin:0 0 10px;color:#58a62d;font-weight:800;letter-spacing:.12em;text-transform:uppercase">eMonitor dashboard</p>
+              <h1 style="margin:0 0 18px;font-size:2.5rem;line-height:1.05">This template must be opened through the dashboard server.</h1>
+              <p style="font-size:1.05rem;line-height:1.6;color:#62766c">Opening the HTML file directly cannot load its styles, live data, or graphs. Open <strong style="color:#17342a">http://emonitor.local:5000/</strong> instead.</p>
+              <p style="margin:24px 0 0;padding:14px 16px;border-radius:12px;background:#edf6dc;font-family:ui-monospace,monospace">cd ~/src/emonitor-dashboard<br>.venv/bin/python app.py</p>
+            </main>`;
+          document.body.style.cssText = "margin:0;background:#edf6dc";
+        });
+      }
+    </script>
+  </head>
+  <body>
+    <main class="shell">
+      <header class="masthead">
+        <div>
+          <p class="eyebrow">eMonitor · home energy</p>
+          <h1>What is using power right now?</h1>
+        </div>
+        <div class="live-status" id="live-status" aria-live="polite">
+          <span class="live-dot"></span>
+          <span id="status-text">Connecting…</span>
+        </div>
+      </header>
+
+      <section class="price-hero" aria-label="Current ComEd electricity price">
+        <div class="market-price">
+          <p class="price-kicker">ComEd real-time market price</p>
+          <p class="price-number"><span id="market-price">—</span><small> ¢/kWh</small></p>
+          <p class="price-time" id="price-time">Waiting for the current price</p>
+        </div>
+        <div class="cost-facts">
+          <div>
+            <span>Estimated variable rate</span>
+            <strong id="effective-rate">—</strong>
+            <small>market + bill-derived variable charges</small>
+          </div>
+          <div>
+            <span>Current dollar-per-hour rate</span>
+            <strong id="current-cost-rate">—</strong>
+            <small>if this power level continues for one hour</small>
+          </div>
+          <div>
+            <span>Past 24 hours</span>
+            <strong id="home-cost-24h">—</strong>
+            <small id="home-energy-24h">completed half-hour periods</small>
+          </div>
+        </div>
+      </section>
+
+      <section class="panel burn-panel" aria-labelledby="burn-title">
+        <div class="section-heading">
+          <div>
+            <p class="eyebrow">Variable electricity cost</p>
+            <h2 id="burn-title">Dollar-per-hour rate · last 24 hours</h2>
+          </div>
+          <p>Half-hour average power at the matching ComEd rate. The orange bar is the current time slot and updates every 15 seconds.</p>
+        </div>
+        <div class="burn-chart-wrap">
+          <svg id="burn-chart" role="img" aria-label="Dollar-per-hour electricity cost over the last 24 hours"></svg>
+          <div class="tooltip" id="burn-tooltip" hidden></div>
+          <div class="empty-state" id="burn-empty" hidden>
+            <strong>Cost history is not available yet.</strong>
+            <span>The chart will appear when Main Power summaries and ComEd prices overlap.</span>
+          </div>
+        </div>
+      </section>
+
+      <section class="summary-grid" aria-label="Current home energy summary">
+        <article class="summary-card main-power">
+          <p class="card-label">Total usage</p>
+          <p class="big-number"><span id="main-power">—</span><small> W</small></p>
+          <p class="card-note">Combined Main Power</p>
+        </article>
+        <article class="summary-card solar-power">
+          <p class="card-label">Solar production</p>
+          <p class="big-number"><span id="solar-power">—</span><small> W</small></p>
+          <p class="card-note">Combined Solar Panels</p>
+        </article>
+        <article class="summary-card updated-card">
+          <p class="card-label">Latest reading</p>
+          <p class="updated-time" id="updated-time">Waiting for data</p>
+          <p class="card-note">Refreshes every 15 seconds</p>
+        </article>
+        <article class="summary-card pi-card">
+          <div class="pi-card-heading">
+            <p class="card-label">Raspberry Pi health</p>
+            <span class="pi-mark">Pi 5</span>
+          </div>
+          <dl class="pi-metrics">
+            <div>
+              <dt>CPU</dt>
+              <dd id="cpu-temperature">—</dd>
+            </div>
+            <div>
+              <dt>Disk free</dt>
+              <dd id="disk-free">—</dd>
+            </div>
+            <div>
+              <dt>Fan</dt>
+              <dd id="fan-speed">—</dd>
+            </div>
+          </dl>
+          <p class="card-note" id="pi-note">Available when running on Linux</p>
+        </article>
+      </section>
+
+      <section class="quality-strip" aria-labelledby="quality-title">
+        <div class="quality-heading">
+          <div>
+            <p class="eyebrow">Data quality</p>
+            <h2 id="quality-title">Missing readings</h2>
+          </div>
+          <p>Measured using the Main Power circuit</p>
+        </div>
+        <div class="quality-days" id="quality-days"></div>
+      </section>
+
+      <section class="panel top-panel">
+        <div class="section-heading">
+          <div>
+            <p class="eyebrow">Live ranking</p>
+            <h2>Top five circuits</h2>
+          </div>
+          <p>Choose any circuit to inspect its last 24 hours.</p>
+        </div>
+        <div class="circuit-grid" id="top-circuits" aria-live="polite"></div>
+      </section>
+
+      <section class="panel chart-panel">
+        <div class="chart-heading">
+          <div>
+            <p class="eyebrow">15-second detail</p>
+            <h2><span id="chart-title">Circuit</span> · last 24 hours</h2>
+          </div>
+          <label class="circuit-picker">
+            <span>Selected circuit</span>
+            <select id="circuit-select" aria-label="Select circuit"></select>
+          </label>
+        </div>
+        <div class="chart-stats">
+          <span>Now <strong id="chart-now">—</strong></span>
+          <span>24h peak <strong id="chart-peak">—</strong></span>
+          <span>Samples <strong id="sample-count">—</strong></span>
+        </div>
+        <div class="chart-wrap" id="chart-wrap">
+          <svg id="power-chart" role="img" aria-label="Power use over the last 24 hours"></svg>
+          <div class="tooltip" id="chart-tooltip" hidden></div>
+          <div class="empty-state" id="empty-state" hidden>
+            <strong>Detailed history is not available yet.</strong>
+            <span>Restart the updated collector and this chart will fill as 15-second readings arrive.</span>
+          </div>
+        </div>
+      </section>
+
+      <section class="panel cost-panel">
+        <div class="section-heading">
+          <div>
+            <p class="eyebrow">Past 24 hours</p>
+            <h2>Top circuits by energy</h2>
+          </div>
+          <p>Estimated variable cost combines the matching ComEd price with bill-derived per-kWh charges. Fixed charges are excluded.</p>
+        </div>
+        <div class="cost-table-wrap">
+          <table class="cost-table">
+            <thead>
+              <tr><th>Rank &amp; circuit</th><th>Energy</th><th>Variable cost</th><th>Share</th></tr>
+            </thead>
+            <tbody id="cost-circuits"></tbody>
+          </table>
+        </div>
+        <p class="coverage-note" id="cost-coverage"></p>
+      </section>
+      <footer>Read-only dashboard · the collector remains the only database writer</footer>
+    </main>
+    <script src="{{ url_for('static', filename='dashboard.js') }}" defer></script>
+  </body>
+</html>
+
