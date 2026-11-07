@@ -142,7 +142,10 @@
               <p class="eyebrow" id="solar-horizon">Today · daylight hours</p>
               <h2>Solar production</h2>
             </div>
-            <p><strong id="solar-today-total">—</strong><span> kWh today</span></p>
+            <p class="solar-total">
+              <span class="solar-total-value"><strong id="solar-today-total">—</strong> kWh</span>
+              <span class="solar-total-caption">today</span>
+            </p>
           </div>
           <div class="solar-chart-wrap">
             <svg id="solar-today-chart" role="img" aria-label="Today's half-hour solar production across the daylight window"></svg>
@@ -171,7 +174,10 @@
                 <option value="30d">Last 30 days · live</option>
                 <option value="12m">Last 12 months</option>
               </select>
-              <p><strong id="solar-history-total">—</strong><span> kWh total</span></p>
+              <p class="solar-total">
+                <span class="solar-total-value"><strong id="solar-history-total">—</strong> kWh</span>
+                <span class="solar-total-caption">total</span>
+              </p>
             </div>
           </div>
           <div class="solar-chart-wrap">
