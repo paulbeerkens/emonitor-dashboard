@@ -669,6 +669,12 @@ class DashboardDatabase:
       )
 
     sunrise, sunset, solar_day_start, solar_day_end = self._solar_window(today)
+    if sunrise and local_now < sunrise:
+      daylight_status = "before_sunrise"
+    elif sunset and local_now >= sunset:
+      daylight_status = "after_sunset"
+    else:
+      daylight_status = "daylight"
     half_hours = []
     slot_count = round((solar_day_end - solar_day_start).total_seconds() / 1800)
     for offset in range(slot_count):
@@ -685,16 +691,11 @@ class DashboardDatabase:
           ),
           3,
         ),
-        "current": current_start == slot_start,
+        "current": (
+          current_start == slot_start and daylight_status == "daylight"
+        ),
         "future": slot_start > local_now,
       })
-
-    if sunrise and local_now < sunrise:
-      daylight_status = "before_sunrise"
-    elif sunset and local_now >= sunset:
-      daylight_status = "after_sunset"
-    else:
-      daylight_status = "daylight"
 
     days = []
     for local_date, energy_kwh in daily_energy.items():

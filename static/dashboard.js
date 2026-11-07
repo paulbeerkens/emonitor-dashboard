@@ -196,6 +196,18 @@ function renderSolar(data) {
   const solar = data.solar || {};
   const total = solar.today_energy_kwh;
   $("solar-today-total").textContent = total == null ? "—" : total.toFixed(2);
+  const currentLegend = $("solar-current-legend");
+  const currentLegendSwatch = $("solar-current-legend-swatch");
+  if (solar.daylight_status === "after_sunset") {
+    currentLegend.textContent = "Daylight production complete";
+    currentLegendSwatch.className = "solar-swatch";
+  } else if (solar.daylight_status === "before_sunrise") {
+    currentLegend.textContent = "Awaiting the first daylight bucket";
+    currentLegendSwatch.className = "solar-swatch";
+  } else {
+    currentLegend.textContent = "Current incomplete half-hour";
+    currentLegendSwatch.className = "solar-swatch current";
+  }
   renderSolarBarChart(
     "solar-today-chart", "solar-today-tooltip", solar.today_half_hours || [], "half-hour"
   );

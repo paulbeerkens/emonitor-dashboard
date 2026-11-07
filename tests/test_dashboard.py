@@ -113,6 +113,8 @@ def test_snapshot_returns_live_ranking_and_history(tmp_path):
   assert result["solar"]["daylight_status"] in {
     "before_sunrise", "daylight", "after_sunset"
   }
+  if result["solar"]["daylight_status"] != "daylight":
+    assert not any(item["current"] for item in result["solar"]["today_half_hours"])
   assert "average_power_kw" in result["solar"]["today_half_hours"][0]
   assert "coverage_percent" in result["solar"]["daily"][-1]
   assert result["solar"]["best_day"] is not None
