@@ -495,7 +495,7 @@ function priceChartScale(rows, height, margin) {
   };
 }
 
-function renderPriceChart(svgId, tooltipId, emptyId, rows, mode) {
+function renderPriceChart(svgId, tooltipId, emptyId, rows, mode, daylightWindows = []) {
   const svg = $(svgId);
   const tooltip = $(tooltipId);
   const empty = $(emptyId);
@@ -507,7 +507,7 @@ function renderPriceChart(svgId, tooltipId, emptyId, rows, mode) {
 
   const width = Math.max(svg.clientWidth, 400);
   const height = Math.max(svg.clientHeight, 220);
-  const margin = { top: 14, right: 14, bottom: 38, left: 54 };
+  const margin = { top: mode === "bars" ? 30 : 14, right: 14, bottom: 38, left: 54 };
   const plotWidth = width - margin.left - margin.right;
   const scale = priceChartScale(rows, height, margin);
   const ns = "http://www.w3.org/2000/svg";
@@ -517,6 +517,45 @@ function renderPriceChart(svgId, tooltipId, emptyId, rows, mode) {
     return node;
   };
   svg.setAttribute("viewBox", `0 0 ${width} ${height}`);
+
+  const graphStartMs = rows[0].period_start_ms;
+  const graphEndMs = rows.at(-1).period_start_ms + 30 * 60 * 1000;
+  const xForTimestamp = (timestamp) => margin.left
+    + (timestamp - graphStartMs) / (graphEndMs - graphStartMs) * plotWidth;
+  if (mode === "bars" && daylightWindows.length) {
+    svg.append(make("rect", {
+      x: margin.left, y: margin.top, width: plotWidth,
+      height: height - margin.top - margin.bottom, class: "night-band"
+    }));
+    daylightWindows.forEach((day, index) => {
+      if (day.sunrise_ms != null && day.sunset_ms != null) {
+        const sunriseX = xForTimestamp(day.sunrise_ms);
+        const sunsetX = xForTimestamp(day.sunset_ms);
+        svg.append(make("rect", {
+          x: sunriseX, y: margin.top, width: Math.max(0, sunsetX - sunriseX),
+          height: height - margin.top - margin.bottom, class: "daylight-band"
+        }));
+        const sun = make("text", {
+          x: sunriseX, y: margin.top - 9, class: "sun-marker",
+          "aria-hidden": "true"
+        });
+        sun.textContent = "☀";
+        const moon = make("text", {
+          x: sunsetX, y: margin.top - 9, class: "moon-marker",
+          "aria-hidden": "true"
+        });
+        moon.textContent = "☾";
+        svg.append(sun, moon);
+      }
+      if (index > 0) {
+        const dividerX = xForTimestamp(day.day_start_ms);
+        svg.append(make("line", {
+          x1: dividerX, y1: margin.top, x2: dividerX,
+          y2: height - margin.bottom, class: "day-divider"
+        }));
+      }
+    });
+  }
 
   for (let tick = 0; tick <= 4; tick += 1) {
     const value = scale.maximum - tick / 4 * (scale.maximum - scale.minimum);
@@ -581,20 +620,32 @@ function renderPriceChart(svgId, tooltipId, emptyId, rows, mode) {
     });
   }
 
-  const labelCount = mode === "line" ? (width < 650 ? 4 : 7) : (width < 650 ? 5 : 8);
-  [...new Set(Array.from({ length: labelCount }, (_, index) =>
-    Math.round(index * (rows.length - 1) / (labelCount - 1))
-  ))].forEach((index) => {
-    const label = make("text", {
-      x: xFor(index), y: height - 10, class: "axis-label",
-      "text-anchor": index === 0 ? "start" : index === rows.length - 1 ? "end" : "middle"
+  if (mode === "bars" && daylightWindows.length) {
+    daylightWindows.forEach((day) => {
+      const label = make("text", {
+        x: xForTimestamp((day.day_start_ms + day.day_end_ms) / 2),
+        y: height - 10, class: "day-axis-label"
+      });
+      label.textContent = new Date(day.day_start_ms).toLocaleDateString([], {
+        weekday: "short", month: "numeric", day: "numeric"
+      });
+      svg.append(label);
     });
-    const date = new Date(rows[index].period_start_ms);
-    label.textContent = mode === "line"
-      ? date.toLocaleTimeString([], { hour: "numeric", minute: "2-digit" })
-      : date.toLocaleDateString([], { weekday: "short", month: "numeric", day: "numeric" });
-    svg.append(label);
-  });
+  } else {
+    const labelCount = width < 650 ? 4 : 7;
+    [...new Set(Array.from({ length: labelCount }, (_, index) =>
+      Math.round(index * (rows.length - 1) / (labelCount - 1))
+    ))].forEach((index) => {
+      const label = make("text", {
+        x: xFor(index), y: height - 10, class: "axis-label",
+        "text-anchor": index === 0 ? "start" : index === rows.length - 1 ? "end" : "middle"
+      });
+      label.textContent = new Date(rows[index].period_start_ms).toLocaleTimeString([], {
+        hour: "numeric", minute: "2-digit"
+      });
+      svg.append(label);
+    });
+  }
 
   svg.onpointermove = (event) => {
     const rect = svg.getBoundingClientRect();
@@ -622,8 +673,8 @@ function renderComEdPrices(data) {
     pricing.price_history_24h || [], "line"
   );
   renderPriceChart(
-    "price-7d-chart", "price-7d-tooltip", "price-7d-empty",
-    pricing.price_history_7d || [], "bars"
+    "price-5d-chart", "price-5d-tooltip", "price-5d-empty",
+    pricing.price_history_5d || [], "bars", pricing.price_daylight_windows_5d || []
   );
 }
 

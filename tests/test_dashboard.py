@@ -175,7 +175,12 @@ def test_api_returns_dashboard_payload(tmp_path):
   assert response.get_json()["pricing"]["market_price_cents_per_kwh"] == 4.25
   assert response.get_json()["pricing"]["price_freshness"] == "current"
   assert len(response.get_json()["pricing"]["price_history_24h"]) == 49
-  assert len(response.get_json()["pricing"]["price_history_7d"]) == 337
+  assert len(response.get_json()["pricing"]["price_history_5d"]) in {238, 240, 242}
+  assert len(response.get_json()["pricing"]["price_daylight_windows_5d"]) == 5
+  assert all(
+    day["sunrise_ms"] < day["sunset_ms"]
+    for day in response.get_json()["pricing"]["price_daylight_windows_5d"]
+  )
   assert any(
     row["price_cents_per_kwh"] == 4.0
     for row in response.get_json()["pricing"]["price_history_24h"]

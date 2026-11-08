@@ -98,6 +98,17 @@ h2 { font-size: clamp(1.5rem, 3vw, 2.25rem); letter-spacing: -.035em; }
 .market-price-bar.negative { fill: var(--aqua); }
 .market-price-bar.current { stroke: #9f3d12; stroke-width: 1.5; }
 .zero-line { stroke: rgba(23, 52, 42, .42); stroke-width: 1.2; }
+.night-band { fill: rgba(59, 83, 91, .08); }
+.daylight-band { fill: rgba(245, 166, 35, .11); }
+.day-divider { stroke: rgba(56, 112, 65, .22); stroke-width: 1; }
+.sun-marker, .moon-marker { font-size: 13px; text-anchor: middle; }
+.sun-marker { fill: #d88900; }
+.moon-marker { fill: #526d78; }
+.day-axis-label { fill: var(--ink); font-size: 10px; font-weight: 700; text-anchor: middle; }
+.price-day-legend { display: flex; justify-content: flex-end; gap: 14px; margin-top: 7px; color: var(--muted); font-size: .68rem; }
+.price-day-legend span { display: inline-flex; align-items: center; gap: 5px; }
+.price-day-legend span:first-child b { color: #d88900; }
+.price-day-legend span:last-child b { color: #526d78; }
 
 .panel { margin-top: 14px; padding: 28px; border-radius: 28px; }
 .section-heading > p { max-width: 380px; color: var(--muted); font-size: .9rem; line-height: 1.5; text-align: right; }
@@ -253,6 +264,7 @@ footer { padding: 24px 4px 0; color: #6c806f; font-size: .72rem; text-align: cen
   .chart-stats { margin-left: 0; gap: 12px; flex-wrap: wrap; }
   .chart-wrap { height: 320px; }
   .burn-chart-wrap { height: 225px; }
+  .price-day-legend { justify-content: flex-start; }
   .cost-facts { grid-template-columns: 1fr; }
   .cost-facts > div { border-top: 1px solid var(--line); border-left: 0; }
   .cost-table { min-width: 660px; }

@@ -287,18 +287,22 @@
         <article class="panel price-chart-panel">
           <div class="section-heading compact">
             <div>
-              <p class="eyebrow">Seven-day view</p>
-              <h2>Weekly half-hour prices</h2>
+              <p class="eyebrow">Five-day view</p>
+              <h2>Five-day half-hour prices</h2>
             </div>
             <p>Each bar is one persisted half-hour average; gaps indicate missing prices.</p>
           </div>
           <div class="price-chart-wrap">
-            <svg id="price-7d-chart" role="img" aria-label="ComEd prices over the last seven days in half-hour bars"></svg>
-            <div class="tooltip" id="price-7d-tooltip" hidden></div>
-            <div class="empty-state" id="price-7d-empty" hidden>
-              <strong>Weekly prices are not available yet.</strong>
+            <svg id="price-5d-chart" role="img" aria-label="ComEd prices over the last five days in half-hour bars"></svg>
+            <div class="tooltip" id="price-5d-tooltip" hidden></div>
+            <div class="empty-state" id="price-5d-empty" hidden>
+              <strong>Five-day prices are not available yet.</strong>
               <span>The chart will build as the collector stores half-hour prices.</span>
             </div>
+          </div>
+          <div class="price-day-legend" aria-label="Day and night shading">
+            <span><b aria-hidden="true">☀</b> Daylight</span>
+            <span><b aria-hidden="true">☾</b> Night</span>
           </div>
         </article>
       </section>

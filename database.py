@@ -166,6 +166,53 @@ class DashboardDatabase:
       )
     ]
 
+  def _five_day_price_history(
+    self,
+    now: datetime,
+    hourly_prices: dict[int, float],
+    half_hour_prices: dict[int, float],
+  ) -> tuple[list[dict[str, Any]], list[dict[str, Any]]]:
+    """Return five local calendar days plus their true daylight windows."""
+    local_now = now.astimezone(CHICAGO)
+    first_date = local_now.date() - timedelta(days=4)
+    final_date = local_now.date() + timedelta(days=1)
+    start = datetime.combine(first_date, datetime.min.time(), CHICAGO)
+    end = datetime.combine(final_date, datetime.min.time(), CHICAGO)
+    start_ms = round(start.astimezone(timezone.utc).timestamp() * 1000)
+    end_ms = round(end.astimezone(timezone.utc).timestamp() * 1000)
+    current_start_ms = self._half_hour_start_ms(now)
+    rows = [
+      {
+        "period_start_ms": period_start_ms,
+        "price_cents_per_kwh": (
+          self._market_price(
+            datetime.fromtimestamp(period_start_ms / 1000, timezone.utc),
+            hourly_prices,
+            half_hour_prices,
+          )
+          if period_start_ms <= current_start_ms else None
+        ),
+        "current": period_start_ms == current_start_ms,
+      }
+      for period_start_ms in range(start_ms, end_ms, 30 * 60 * 1000)
+    ]
+    days = []
+    for offset in range(5):
+      local_date = first_date + timedelta(days=offset)
+      day_start = datetime.combine(local_date, datetime.min.time(), CHICAGO)
+      day_end = datetime.combine(
+        local_date + timedelta(days=1), datetime.min.time(), CHICAGO
+      )
+      sunrise, sunset, _, _ = self._solar_window(local_date)
+      days.append({
+        "date": local_date.isoformat(),
+        "day_start_ms": round(day_start.timestamp() * 1000),
+        "day_end_ms": round(day_end.timestamp() * 1000),
+        "sunrise_ms": round(sunrise.timestamp() * 1000) if sunrise else None,
+        "sunset_ms": round(sunset.timestamp() * 1000) if sunset else None,
+      })
+    return rows, days
+
   def _cost_summary(
     self,
     connection: sqlite3.Connection,
@@ -200,6 +247,9 @@ class DashboardDatabase:
       if current_main_power_watts is not None and effective_rate is not None
       else None
     )
+    five_day_prices, five_day_daylight = self._five_day_price_history(
+      now, hourly_prices, half_hour_prices
+    )
     pricing = {
       "market_price_cents_per_kwh": current_market_price,
       "variable_addon_cents_per_kwh": variable_addon_cents_per_kwh,
@@ -212,9 +262,8 @@ class DashboardDatabase:
       "price_history_24h": self._price_history(
         now, 24, hourly_prices, half_hour_prices
       ),
-      "price_history_7d": self._price_history(
-        now, 7 * 24, hourly_prices, half_hour_prices
-      ),
+      "price_history_5d": five_day_prices,
+      "price_daylight_windows_5d": five_day_daylight,
     }
 
     cutoff = now - timedelta(hours=24)
