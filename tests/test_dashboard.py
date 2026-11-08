@@ -28,6 +28,16 @@ def make_database(path, include_samples=True):
       hour_start TEXT PRIMARY KEY, price_cents_per_kwh REAL NOT NULL,
       source_sample_count INTEGER NOT NULL, updated_at TEXT NOT NULL
     );
+    CREATE TABLE comed_price_samples (
+      sampled_at_ms INTEGER PRIMARY KEY, price_cents_per_kwh REAL NOT NULL,
+      retrieved_at TEXT NOT NULL
+    );
+    CREATE TABLE comed_half_hour_prices (
+      period_start TEXT PRIMARY KEY, period_end TEXT NOT NULL,
+      price_sum_cents_per_kwh REAL NOT NULL, sample_count INTEGER NOT NULL,
+      average_price_cents_per_kwh REAL NOT NULL,
+      is_complete INTEGER NOT NULL, updated_at TEXT NOT NULL
+    );
   """)
   connection.executemany(
     "INSERT INTO meta_data VALUES (?, ?, 0, 20, 120, 0)",
@@ -57,6 +67,17 @@ def make_database(path, include_samples=True):
   )
   period_start = now.replace(minute=0, second=0, microsecond=0)
   period_end = period_start + timedelta(minutes=30)
+  connection.execute(
+    "INSERT INTO comed_price_samples VALUES (?, ?, ?)",
+    (round(now.timestamp() * 1000), 4.25, now.isoformat()),
+  )
+  connection.execute(
+    "INSERT INTO comed_half_hour_prices VALUES (?, ?, ?, ?, ?, ?, ?)",
+    (
+      period_start.isoformat(), period_end.isoformat(), 24.0, 6, 4.0, 1,
+      now.isoformat(),
+    ),
+  )
   connection.executemany(
     "INSERT INTO channel_usage VALUES (?, ?, ?, ?, ?, ?)",
     [
@@ -144,21 +165,7 @@ def test_snapshot_falls_back_to_checkpoint_before_sample_table_exists(tmp_path):
 def test_api_returns_dashboard_payload(tmp_path):
   path = tmp_path / "emonitor.db"
   make_database(path)
-  class FakePrices:
-    def snapshot(self):
-      hour_ms = round(datetime.now(timezone.utc).replace(
-        minute=0, second=0, microsecond=0
-      ).timestamp() * 1000)
-      return {
-        "current_price_cents_per_kwh": 4.25,
-        "price_at_ms": hour_ms,
-        "hourly_prices": [{
-          "hour_start_ms": hour_ms, "price_cents_per_kwh": 4.0,
-        }],
-        "source": "test",
-      }
-
-  client = create_app(path, pricing_service=FakePrices()).test_client()
+  client = create_app(path).test_client()
 
   response = client.get("/api/dashboard?circuit_id=3")
 
@@ -166,6 +173,7 @@ def test_api_returns_dashboard_payload(tmp_path):
   assert response.get_json()["selected_circuit"]["name"] == "Kitchen"
   assert "system" in response.get_json()
   assert response.get_json()["pricing"]["market_price_cents_per_kwh"] == 4.25
+  assert response.get_json()["pricing"]["price_freshness"] == "current"
   assert response.get_json()["last_24_hours"]["circuits"][0]["channel_name"] == "Car Charger"
   assert response.get_json()["pricing"]["effective_variable_rate_cents_per_kwh"] == pytest.approx(12.041438)
   assert response.get_json()["last_24_hours"]["circuits"][0]["cost_dollars"] == pytest.approx(0.418596049)

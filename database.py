@@ -83,17 +83,25 @@ class DashboardDatabase:
       ).timestamp() * 1000
     )
 
-  def _cost_summary(
+  @staticmethod
+  def _half_hour_start_ms(value: datetime) -> int:
+    utc_value = value.astimezone(timezone.utc)
+    return round(
+      utc_value.replace(
+        minute=0 if utc_value.minute < 30 else 30,
+        second=0,
+        microsecond=0,
+      ).timestamp() * 1000
+    )
+
+  def _stored_market_prices(
     self,
     connection: sqlite3.Connection,
-    metadata: dict[int, str],
-    now: datetime,
-    current_main_power_watts: int | None,
-    live_pricing: dict[str, Any] | None,
-    variable_addon_cents_per_kwh: float,
-  ) -> tuple[dict[str, Any], dict[str, Any]]:
+  ) -> tuple[dict[int, float], dict[int, float], tuple[int, float] | None]:
+    """Load legacy hourly prices, preferred half-hours, and latest sample."""
     hourly_prices: dict[int, float] = {}
-    stored_latest: tuple[int, float] | None = None
+    half_hour_prices: dict[int, float] = {}
+    latest: tuple[int, float] | None = None
     if self._table_exists(connection, "comed_hourly_prices"):
       for row in connection.execute(
         "SELECT hour_start, price_cents_per_kwh "
@@ -102,22 +110,62 @@ class DashboardDatabase:
         timestamp_ms = self._hour_start_ms(datetime.fromisoformat(row["hour_start"]))
         price = float(row["price_cents_per_kwh"])
         hourly_prices[timestamp_ms] = price
-        stored_latest = (timestamp_ms, price)
+        latest = (timestamp_ms, price)
+    if self._table_exists(connection, "comed_half_hour_prices"):
+      for row in connection.execute(
+        "SELECT period_start, average_price_cents_per_kwh "
+        "FROM comed_half_hour_prices ORDER BY period_start"
+      ):
+        timestamp_ms = self._half_hour_start_ms(
+          datetime.fromisoformat(row["period_start"])
+        )
+        half_hour_prices[timestamp_ms] = float(
+          row["average_price_cents_per_kwh"]
+        )
+    if self._table_exists(connection, "comed_price_samples"):
+      row = connection.execute(
+        "SELECT sampled_at_ms, price_cents_per_kwh FROM comed_price_samples "
+        "ORDER BY sampled_at_ms DESC LIMIT 1"
+      ).fetchone()
+      if row:
+        latest = (int(row["sampled_at_ms"]), float(row["price_cents_per_kwh"]))
+    return hourly_prices, half_hour_prices, latest
 
-    if live_pricing:
-      hourly_prices.update({
-        int(row["hour_start_ms"]): float(row["price_cents_per_kwh"])
-        for row in live_pricing.get("hourly_prices", [])
-      })
-
-    current_market_price = (
-      live_pricing.get("current_price_cents_per_kwh")
-      if live_pricing else None
+  def _market_price(
+    self,
+    value: datetime,
+    hourly_prices: dict[int, float],
+    half_hour_prices: dict[int, float],
+  ) -> float | None:
+    return half_hour_prices.get(
+      self._half_hour_start_ms(value),
+      hourly_prices.get(self._hour_start_ms(value)),
     )
-    price_at_ms = live_pricing.get("price_at_ms") if live_pricing else None
-    source = live_pricing.get("source") if live_pricing else "Collector price table"
-    if current_market_price is None and stored_latest:
-      price_at_ms, current_market_price = stored_latest
+
+  def _cost_summary(
+    self,
+    connection: sqlite3.Connection,
+    metadata: dict[int, str],
+    now: datetime,
+    current_main_power_watts: int | None,
+    variable_addon_cents_per_kwh: float,
+  ) -> tuple[dict[str, Any], dict[str, Any]]:
+    hourly_prices, half_hour_prices, stored_latest = self._stored_market_prices(
+      connection
+    )
+    price_at_ms, current_market_price = stored_latest or (None, None)
+    price_age_seconds = (
+      max(0, round(now.timestamp() - price_at_ms / 1000))
+      if price_at_ms is not None else None
+    )
+    if price_age_seconds is None:
+      price_freshness = "unavailable"
+    elif price_age_seconds <= 10 * 60:
+      price_freshness = "current"
+    elif price_age_seconds <= 20 * 60:
+      price_freshness = "delayed"
+    else:
+      price_freshness = "stale"
 
     effective_rate = (
       current_market_price + variable_addon_cents_per_kwh
@@ -134,7 +182,9 @@ class DashboardDatabase:
       "effective_variable_rate_cents_per_kwh": effective_rate,
       "current_cost_dollars_per_hour": current_cost_per_hour,
       "price_at_ms": price_at_ms,
-      "source": source,
+      "price_age_seconds": price_age_seconds,
+      "price_freshness": price_freshness,
+      "source": "Collector SQLite price tables",
     }
 
     cutoff = now - timedelta(hours=24)
@@ -155,7 +205,9 @@ class DashboardDatabase:
         name = metadata.get(channel_id, f"Channel {channel_id}")
         energy_kwh = float(row["energy_wh"]) / 1000
         period_start = datetime.fromisoformat(row["period_start"])
-        market_price = hourly_prices.get(self._hour_start_ms(period_start))
+        market_price = self._market_price(
+          period_start, hourly_prices, half_hour_prices
+        )
         cost = (
           energy_kwh * (market_price + variable_addon_cents_per_kwh) / 100
           if market_price is not None else None
@@ -303,7 +355,6 @@ class DashboardDatabase:
     self,
     period: str = "24h",
     *,
-    live_pricing: dict[str, Any] | None = None,
     variable_addon_cents_per_kwh: float = 7.791438,
   ) -> dict[str, Any]:
     """Return the 20 highest-energy branch circuits for a selected period."""
@@ -317,19 +368,7 @@ class DashboardDatabase:
           "priced_energy_percent": 0, "available_months": [],
         }
 
-      hourly_prices: dict[int, float] = {}
-      if self._table_exists(connection, "comed_hourly_prices"):
-        for row in connection.execute(
-          "SELECT hour_start, price_cents_per_kwh FROM comed_hourly_prices"
-        ):
-          hourly_prices[self._hour_start_ms(
-            datetime.fromisoformat(row["hour_start"])
-          )] = float(row["price_cents_per_kwh"])
-      if live_pricing:
-        hourly_prices.update({
-          int(row["hour_start_ms"]): float(row["price_cents_per_kwh"])
-          for row in live_pricing.get("hourly_prices", [])
-        })
+      hourly_prices, half_hour_prices, _ = self._stored_market_prices(connection)
 
       totals: dict[int, dict[str, Any]] = {}
       for row in connection.execute(
@@ -342,9 +381,11 @@ class DashboardDatabase:
         if name.casefold() in SUMMARY_NAMES or name.casefold().startswith("channel "):
           continue
         energy_kwh = float(row["energy_wh"]) / 1000
-        market_price = hourly_prices.get(self._hour_start_ms(
-          datetime.fromisoformat(row["period_start"])
-        ))
+        market_price = self._market_price(
+          datetime.fromisoformat(row["period_start"]),
+          hourly_prices,
+          half_hour_prices,
+        )
         total = totals.setdefault(channel_id, {
           "channel_id": channel_id,
           "channel_name": name,
@@ -897,7 +938,6 @@ class DashboardDatabase:
     self,
     circuit_id: int | None = None,
     *,
-    live_pricing: dict[str, Any] | None = None,
     variable_addon_cents_per_kwh: float = 7.791438,
   ) -> dict[str, Any]:
     """Return current readings and 24 hours of history for one circuit."""
@@ -973,7 +1013,6 @@ class DashboardDatabase:
         metadata,
         now,
         current_by_name.get("main power", {}).get("power_watts"),
-        live_pricing,
         variable_addon_cents_per_kwh,
       )
       data_quality = self._data_quality(connection, metadata, now)

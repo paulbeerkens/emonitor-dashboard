@@ -11,7 +11,6 @@ from flask import Flask, jsonify, render_template, request
 from waitress import serve
 
 from database import DashboardDatabase
-from pricing import ComEdPricingService
 from system_metrics import SystemMetrics
 
 
@@ -22,7 +21,6 @@ load_dotenv(PROJECT_ROOT / ".env")
 def create_app(
   database_path: str | Path | None = None,
   system_metrics: SystemMetrics | None = None,
-  pricing_service: ComEdPricingService | None = None,
 ) -> Flask:
   app = Flask(__name__)
   configured_path = database_path or os.getenv(
@@ -37,7 +35,6 @@ def create_app(
     longitude=float(os.getenv("SOLAR_LONGITUDE", "-87.6298")),
   )
   metrics = system_metrics or SystemMetrics()
-  prices = pricing_service or ComEdPricingService()
   variable_addon = float(os.getenv(
     "COMED_VARIABLE_ADDON_CENTS_PER_KWH", "7.791438"
   ))
@@ -52,7 +49,6 @@ def create_app(
     try:
       payload = database.snapshot(
         requested_id,
-        live_pricing=prices.snapshot(),
         variable_addon_cents_per_kwh=variable_addon,
       )
       payload["system"] = metrics.snapshot()
@@ -67,7 +63,6 @@ def create_app(
     try:
       return jsonify(database.circuit_usage(
         period,
-        live_pricing=prices.snapshot(),
         variable_addon_cents_per_kwh=variable_addon,
       ))
     except ValueError as error:

@@ -124,6 +124,8 @@ footer { padding: 24px 4px 0; color: #6c806f; font-size: .72rem; text-align: cen
 .cost-facts { display: grid; grid-template-columns: repeat(3, 1fr); align-items: center; }
 .cost-facts > div { min-width: 0; padding: 22px 24px; border-left: 1px solid var(--line); }
 .cost-facts span, .cost-facts small { display: block; color: var(--muted); }
+.cost-facts small.price-delayed { color: #a46300; font-weight: 700; }
+.cost-facts small.price-stale { color: #b3472f; font-weight: 700; }
 .cost-facts span { margin-bottom: 9px; font-size: .7rem; font-weight: 750; text-transform: uppercase; letter-spacing: .08em; }
 .cost-facts strong { display: block; margin-bottom: 7px; color: #2e6f98; font-size: clamp(1.25rem, 2.5vw, 1.8rem); letter-spacing: -.04em; }
 .cost-facts small { font-size: .68rem; line-height: 1.35; }

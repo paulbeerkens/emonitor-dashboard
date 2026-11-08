@@ -1,5 +1,9 @@
 # eMonitor Dashboard
 
+The dashboard is a read-only SQLite client. The eMonitor collector is solely
+responsible for downloading and persisting ComEd prices; the dashboard never
+connects to ComEd directly.
+
 A live, read-only web dashboard for the SQLite database maintained by the
 [`emonitor`](https://github.com/paulbeerkens/emonitor) collector. It is designed
 to run as a separate application on the same Raspberry Pi 5.

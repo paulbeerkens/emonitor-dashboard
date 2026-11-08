@@ -80,9 +80,19 @@ function renderSummary(data) {
   $("home-cost-24h").textContent = money(usage.cost_dollars);
   $("home-energy-24h").textContent = usage.energy_kwh == null
     ? "completed half-hour periods" : `${usage.energy_kwh.toFixed(2)} kWh of Main Power`;
-  $("price-time").textContent = pricing.price_at_ms
-    ? `Latest five-minute price · ${new Date(pricing.price_at_ms).toLocaleTimeString([], { hour: "numeric", minute: "2-digit" })}`
-    : "Waiting for the current price";
+  if (pricing.price_at_ms) {
+    const priceTime = new Date(pricing.price_at_ms).toLocaleTimeString([], {
+      hour: "numeric", minute: "2-digit"
+    });
+    const freshness = pricing.price_freshness || "current";
+    $("price-time").className = freshness === "current" ? "" : `price-${freshness}`;
+    $("price-time").textContent = freshness === "current"
+      ? `Latest five-minute price · ${priceTime}`
+      : `${freshness === "delayed" ? "Price delayed" : "Price stale"} · latest ${priceTime}`;
+  } else {
+    $("price-time").className = "price-stale";
+    $("price-time").textContent = "Waiting for the collector to store a ComEd price";
+  }
   setStatus(data.sampled_at_ms);
 }
 
