@@ -85,6 +85,20 @@ h2 { font-size: clamp(1.5rem, 3vw, 2.25rem); letter-spacing: -.035em; }
 .solar-insights strong { display: block; margin-top: 4px; color: var(--orange); font-size: 1.05rem; }
 .solar-context { margin-top: 10px; color: var(--muted); font-size: .68rem; line-height: 1.4; }
 
+.price-charts { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 14px; }
+.price-chart-panel { min-width: 0; }
+.section-heading.compact { align-items: start; }
+.section-heading.compact h2 { font-size: clamp(1.35rem, 2.4vw, 1.9rem); }
+.section-heading.compact > p { max-width: 220px; font-size: .72rem; }
+.price-chart-wrap { position: relative; height: 260px; margin-top: 18px; }
+.price-chart-wrap svg { display: block; width: 100%; height: 100%; overflow: visible; }
+.market-price-line { fill: none; stroke: var(--orange); stroke-width: 3; stroke-linecap: round; stroke-linejoin: round; }
+.market-price-dot { fill: white; stroke: var(--orange); stroke-width: 2; }
+.market-price-bar { fill: var(--orange); }
+.market-price-bar.negative { fill: var(--aqua); }
+.market-price-bar.current { stroke: #9f3d12; stroke-width: 1.5; }
+.zero-line { stroke: rgba(23, 52, 42, .42); stroke-width: 1.2; }
+
 .panel { margin-top: 14px; padding: 28px; border-radius: 28px; }
 .section-heading > p { max-width: 380px; color: var(--muted); font-size: .9rem; line-height: 1.5; text-align: right; }
 .circuit-grid { display: grid; grid-template-columns: repeat(5, 1fr); gap: 10px; margin-top: 24px; }
@@ -211,6 +225,7 @@ footer { padding: 24px 4px 0; color: #6c806f; font-size: .72rem; text-align: cen
   .cost-facts > div:first-child { border-left: 0; }
   .summary-grid { grid-template-columns: 1fr 1fr; }
   .solar-charts { grid-template-columns: 1fr; }
+  .price-charts { grid-template-columns: 1fr; }
   .updated-card, .pi-card { min-height: 140px; }
   .circuit-grid { grid-template-columns: repeat(2, 1fr); }
   .circuit-card:last-child { grid-column: 1 / -1; }

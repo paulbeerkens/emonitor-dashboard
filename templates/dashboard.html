@@ -266,6 +266,43 @@
         <p class="coverage-note" id="cost-coverage"></p>
       </section>
 
+      <section class="price-charts" aria-label="ComEd real-time price history">
+        <article class="panel price-chart-panel">
+          <div class="section-heading compact">
+            <div>
+              <p class="eyebrow">ComEd real-time prices</p>
+              <h2>Last 24 hours</h2>
+            </div>
+            <p>Half-hour average market price in cents per kWh.</p>
+          </div>
+          <div class="price-chart-wrap">
+            <svg id="price-24h-chart" role="img" aria-label="ComEd prices over the last 24 hours as a line graph"></svg>
+            <div class="tooltip" id="price-24h-tooltip" hidden></div>
+            <div class="empty-state" id="price-24h-empty" hidden>
+              <strong>Price history is not available yet.</strong>
+              <span>The collector will populate this graph from ComEd.</span>
+            </div>
+          </div>
+        </article>
+        <article class="panel price-chart-panel">
+          <div class="section-heading compact">
+            <div>
+              <p class="eyebrow">Seven-day view</p>
+              <h2>Weekly half-hour prices</h2>
+            </div>
+            <p>Each bar is one persisted half-hour average; gaps indicate missing prices.</p>
+          </div>
+          <div class="price-chart-wrap">
+            <svg id="price-7d-chart" role="img" aria-label="ComEd prices over the last seven days in half-hour bars"></svg>
+            <div class="tooltip" id="price-7d-tooltip" hidden></div>
+            <div class="empty-state" id="price-7d-empty" hidden>
+              <strong>Weekly prices are not available yet.</strong>
+              <span>The chart will build as the collector stores half-hour prices.</span>
+            </div>
+          </div>
+        </article>
+      </section>
+
       <section class="quality-strip" aria-labelledby="quality-title">
         <div class="quality-heading">
           <div>

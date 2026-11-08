@@ -174,6 +174,12 @@ def test_api_returns_dashboard_payload(tmp_path):
   assert "system" in response.get_json()
   assert response.get_json()["pricing"]["market_price_cents_per_kwh"] == 4.25
   assert response.get_json()["pricing"]["price_freshness"] == "current"
+  assert len(response.get_json()["pricing"]["price_history_24h"]) == 49
+  assert len(response.get_json()["pricing"]["price_history_7d"]) == 337
+  assert any(
+    row["price_cents_per_kwh"] == 4.0
+    for row in response.get_json()["pricing"]["price_history_24h"]
+  )
   assert response.get_json()["last_24_hours"]["circuits"][0]["channel_name"] == "Car Charger"
   assert response.get_json()["pricing"]["effective_variable_rate_cents_per_kwh"] == pytest.approx(12.041438)
   assert response.get_json()["last_24_hours"]["circuits"][0]["cost_dollars"] == pytest.approx(0.418596049)

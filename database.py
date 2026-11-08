@@ -142,6 +142,30 @@ class DashboardDatabase:
       hourly_prices.get(self._hour_start_ms(value)),
     )
 
+  def _price_history(
+    self,
+    now: datetime,
+    hours: int,
+    hourly_prices: dict[int, float],
+    half_hour_prices: dict[int, float],
+  ) -> list[dict[str, Any]]:
+    current_start_ms = self._half_hour_start_ms(now)
+    first_start_ms = current_start_ms - hours * 60 * 60 * 1000
+    return [
+      {
+        "period_start_ms": period_start_ms,
+        "price_cents_per_kwh": self._market_price(
+          datetime.fromtimestamp(period_start_ms / 1000, timezone.utc),
+          hourly_prices,
+          half_hour_prices,
+        ),
+        "current": period_start_ms == current_start_ms,
+      }
+      for period_start_ms in range(
+        first_start_ms, current_start_ms + 1, 30 * 60 * 1000
+      )
+    ]
+
   def _cost_summary(
     self,
     connection: sqlite3.Connection,
@@ -185,6 +209,12 @@ class DashboardDatabase:
       "price_age_seconds": price_age_seconds,
       "price_freshness": price_freshness,
       "source": "Collector SQLite price tables",
+      "price_history_24h": self._price_history(
+        now, 24, hourly_prices, half_hour_prices
+      ),
+      "price_history_7d": self._price_history(
+        now, 7 * 24, hourly_prices, half_hour_prices
+      ),
     }
 
     cutoff = now - timedelta(hours=24)

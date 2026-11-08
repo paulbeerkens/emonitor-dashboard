@@ -475,6 +475,158 @@ function renderBurnRate(data) {
   svg.onpointerleave = () => { $("burn-tooltip").hidden = true; };
 }
 
+function priceChartScale(rows, height, margin) {
+  const values = rows
+    .map((row) => row.price_cents_per_kwh)
+    .filter((value) => value != null);
+  if (!values.length) return null;
+  let minimum = Math.min(0, ...values);
+  let maximum = Math.max(0, ...values);
+  const span = Math.max(maximum - minimum, .5);
+  minimum -= span * .08;
+  maximum += span * .08;
+  const plotHeight = height - margin.top - margin.bottom;
+  return {
+    minimum,
+    maximum,
+    y(value) {
+      return margin.top + (maximum - value) / (maximum - minimum) * plotHeight;
+    },
+  };
+}
+
+function renderPriceChart(svgId, tooltipId, emptyId, rows, mode) {
+  const svg = $(svgId);
+  const tooltip = $(tooltipId);
+  const empty = $(emptyId);
+  svg.replaceChildren();
+  const available = rows.filter((row) => row.price_cents_per_kwh != null);
+  empty.hidden = available.length > 0;
+  svg.hidden = available.length === 0;
+  if (!available.length) return;
+
+  const width = Math.max(svg.clientWidth, 400);
+  const height = Math.max(svg.clientHeight, 220);
+  const margin = { top: 14, right: 14, bottom: 38, left: 54 };
+  const plotWidth = width - margin.left - margin.right;
+  const scale = priceChartScale(rows, height, margin);
+  const ns = "http://www.w3.org/2000/svg";
+  const make = (name, attributes = {}) => {
+    const node = document.createElementNS(ns, name);
+    Object.entries(attributes).forEach(([key, value]) => node.setAttribute(key, value));
+    return node;
+  };
+  svg.setAttribute("viewBox", `0 0 ${width} ${height}`);
+
+  for (let tick = 0; tick <= 4; tick += 1) {
+    const value = scale.maximum - tick / 4 * (scale.maximum - scale.minimum);
+    const y = scale.y(value);
+    svg.append(make("line", {
+      x1: margin.left, y1: y, x2: width - margin.right, y2: y,
+      class: Math.abs(value) < .001 ? "zero-line" : "grid-line"
+    }));
+    const label = make("text", {
+      x: margin.left - 8, y: y + 4, class: "axis-label", "text-anchor": "end"
+    });
+    label.textContent = `${value.toFixed(1)}¢`;
+    svg.append(label);
+  }
+  if (scale.minimum < 0 && scale.maximum > 0) {
+    const zeroY = scale.y(0);
+    svg.append(make("line", {
+      x1: margin.left, y1: zeroY, x2: width - margin.right, y2: zeroY,
+      class: "zero-line"
+    }));
+  }
+
+  const xFor = (index) => margin.left + index / Math.max(rows.length - 1, 1) * plotWidth;
+  if (mode === "line") {
+    let segment = [];
+    const drawSegment = () => {
+      if (!segment.length) return;
+      const path = segment.map((point, index) =>
+        `${index ? "L" : "M"}${point.x.toFixed(1)},${point.y.toFixed(1)}`
+      ).join(" ");
+      svg.append(make("path", { d: path, class: "market-price-line" }));
+      segment = [];
+    };
+    rows.forEach((row, index) => {
+      if (row.price_cents_per_kwh == null) {
+        drawSegment();
+        return;
+      }
+      segment.push({ x: xFor(index), y: scale.y(row.price_cents_per_kwh) });
+    });
+    drawSegment();
+    available.forEach((row) => {
+      const index = rows.indexOf(row);
+      svg.append(make("circle", {
+        cx: xFor(index), cy: scale.y(row.price_cents_per_kwh), r: row.current ? 4.5 : 2.5,
+        class: "market-price-dot"
+      }));
+    });
+  } else {
+    const slotWidth = plotWidth / rows.length;
+    const barWidth = Math.max(.7, slotWidth * .78);
+    const zeroY = scale.y(0);
+    rows.forEach((row, index) => {
+      if (row.price_cents_per_kwh == null) return;
+      const valueY = scale.y(row.price_cents_per_kwh);
+      svg.append(make("rect", {
+        x: margin.left + index * slotWidth + (slotWidth - barWidth) / 2,
+        y: Math.min(zeroY, valueY), width: barWidth,
+        height: Math.max(1, Math.abs(zeroY - valueY)),
+        class: `market-price-bar${row.price_cents_per_kwh < 0 ? " negative" : ""}${row.current ? " current" : ""}`
+      }));
+    });
+  }
+
+  const labelCount = mode === "line" ? (width < 650 ? 4 : 7) : (width < 650 ? 5 : 8);
+  [...new Set(Array.from({ length: labelCount }, (_, index) =>
+    Math.round(index * (rows.length - 1) / (labelCount - 1))
+  ))].forEach((index) => {
+    const label = make("text", {
+      x: xFor(index), y: height - 10, class: "axis-label",
+      "text-anchor": index === 0 ? "start" : index === rows.length - 1 ? "end" : "middle"
+    });
+    const date = new Date(rows[index].period_start_ms);
+    label.textContent = mode === "line"
+      ? date.toLocaleTimeString([], { hour: "numeric", minute: "2-digit" })
+      : date.toLocaleDateString([], { weekday: "short", month: "numeric", day: "numeric" });
+    svg.append(label);
+  });
+
+  svg.onpointermove = (event) => {
+    const rect = svg.getBoundingClientRect();
+    const chartX = (event.clientX - rect.left) / rect.width * width;
+    const ratio = Math.max(0, Math.min(1, (chartX - margin.left) / plotWidth));
+    const index = Math.round(ratio * (rows.length - 1));
+    const row = rows[index];
+    tooltip.hidden = false;
+    tooltip.style.left = `${xFor(index) / width * 100}%`;
+    tooltip.style.top = `${(row.price_cents_per_kwh == null ? height / 2 : scale.y(row.price_cents_per_kwh)) / height * 100}%`;
+    const timestamp = new Date(row.period_start_ms).toLocaleString([], {
+      weekday: "short", hour: "numeric", minute: "2-digit"
+    });
+    tooltip.textContent = row.price_cents_per_kwh == null
+      ? `${timestamp} · no stored price`
+      : `${timestamp} · ${row.price_cents_per_kwh.toFixed(2)} ¢/kWh${row.current ? " · current half-hour" : ""}`;
+  };
+  svg.onpointerleave = () => { tooltip.hidden = true; };
+}
+
+function renderComEdPrices(data) {
+  const pricing = data.pricing || {};
+  renderPriceChart(
+    "price-24h-chart", "price-24h-tooltip", "price-24h-empty",
+    pricing.price_history_24h || [], "line"
+  );
+  renderPriceChart(
+    "price-7d-chart", "price-7d-tooltip", "price-7d-empty",
+    pricing.price_history_7d || [], "bars"
+  );
+}
+
 function donutPath(centerX, centerY, outerRadius, innerRadius, startAngle, endAngle) {
   const point = (radius, angle) => {
     const radians = (angle - 90) * Math.PI / 180;
@@ -677,6 +829,7 @@ async function loadDashboard() {
     renderChart(data);
     renderDataQuality(data);
     renderBurnRate(data);
+    renderComEdPrices(data);
     renderDonut(data);
     renderSolar(data);
   } catch (error) {
@@ -703,6 +856,7 @@ window.addEventListener("resize", () => {
   if (lastPayload) {
     renderChart(lastPayload);
     renderBurnRate(lastPayload);
+    renderComEdPrices(lastPayload);
     renderDonut(lastPayload);
     renderSolar(lastPayload);
   }
