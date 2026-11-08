@@ -507,7 +507,7 @@ function renderPriceChart(svgId, tooltipId, emptyId, rows, mode, daylightWindows
 
   const width = Math.max(svg.clientWidth, 400);
   const height = Math.max(svg.clientHeight, 220);
-  const margin = { top: mode === "bars" ? 30 : 14, right: 14, bottom: 38, left: 54 };
+  const margin = { top: 14, right: 14, bottom: 38, left: 54 };
   const plotWidth = width - margin.left - margin.right;
   const scale = priceChartScale(rows, height, margin);
   const ns = "http://www.w3.org/2000/svg";
@@ -535,17 +535,6 @@ function renderPriceChart(svgId, tooltipId, emptyId, rows, mode, daylightWindows
           x: sunriseX, y: margin.top, width: Math.max(0, sunsetX - sunriseX),
           height: height - margin.top - margin.bottom, class: "daylight-band"
         }));
-        const sun = make("text", {
-          x: sunriseX, y: margin.top - 9, class: "sun-marker",
-          "aria-hidden": "true"
-        });
-        sun.textContent = "☀";
-        const moon = make("text", {
-          x: sunsetX, y: margin.top - 9, class: "moon-marker",
-          "aria-hidden": "true"
-        });
-        moon.textContent = "☾";
-        svg.append(sun, moon);
       }
       if (index > 0) {
         const dividerX = xForTimestamp(day.day_start_ms);

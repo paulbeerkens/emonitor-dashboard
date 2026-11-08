@@ -101,9 +101,6 @@ h2 { font-size: clamp(1.5rem, 3vw, 2.25rem); letter-spacing: -.035em; }
 .night-band { fill: rgba(59, 83, 91, .08); }
 .daylight-band { fill: rgba(245, 166, 35, .11); }
 .day-divider { stroke: rgba(56, 112, 65, .22); stroke-width: 1; }
-.sun-marker, .moon-marker { font-size: 13px; text-anchor: middle; }
-.sun-marker { fill: #d88900; }
-.moon-marker { fill: #526d78; }
 .day-axis-label { fill: var(--ink); font-size: 10px; font-weight: 700; text-anchor: middle; }
 .price-day-legend { display: flex; justify-content: flex-end; gap: 14px; margin-top: 7px; color: var(--muted); font-size: .68rem; }
 .price-day-legend span { display: inline-flex; align-items: center; gap: 5px; }
