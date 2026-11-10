@@ -235,13 +235,19 @@
             <p class="eyebrow" id="circuit-history-label">Last 30 days</p>
             <h2 id="circuit-history-title">Daily energy use</h2>
           </div>
-          <label class="circuit-picker">
-            <span>Time period</span>
-            <select id="circuit-history-period">
-              <option value="30d">Last 30 days</option>
-              <option value="90d">Last 90 days</option>
-            </select>
-          </label>
+          <div class="history-controls">
+            <div class="metric-toggle" role="group" aria-label="Show circuit history as energy or cost">
+              <button type="button" class="active" data-history-metric="energy" aria-pressed="true">kWh</button>
+              <button type="button" data-history-metric="cost" aria-pressed="false">Dollars</button>
+            </div>
+            <label class="circuit-picker">
+              <span>Time period</span>
+              <select id="circuit-history-period">
+                <option value="30d">Last 30 days</option>
+                <option value="90d">Last 90 days</option>
+              </select>
+            </label>
+          </div>
         </div>
         <div class="chart-stats history-stats">
           <span>Total <strong id="circuit-history-total">—</strong></span>

@@ -216,6 +216,10 @@ def test_api_returns_dashboard_payload(tmp_path):
   assert circuit_history["granularity"] == "day"
   assert len(circuit_history["bars"]) == 30
   assert sum(row["energy_kwh"] for row in circuit_history["bars"]) == pytest.approx(.06)
+  assert sum(
+    row["cost_dollars"] or 0 for row in circuit_history["bars"]
+  ) == pytest.approx(.007075, abs=1e-6)
+  assert circuit_history["bars"][-1]["priced_energy_percent"] == 100.0
 
   current_year = datetime.now(timezone.utc).year
   year_response = client.get(

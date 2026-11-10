@@ -4,6 +4,7 @@ let selectedUsagePeriod = "24h";
 let selectedSolarPeriod = "14d";
 let selectedCircuitHistoryPeriod = "30d";
 let donutMetric = "energy";
+let circuitHistoryMetric = "energy";
 let solarHistoryLive = true;
 let lastPayload = null;
 let lastSolarHistory = null;
@@ -871,16 +872,23 @@ function renderCircuitHistory(data) {
   const svg = $("circuit-history-chart");
   const empty = $("circuit-history-empty");
   const rows = data.bars || [];
-  const total = rows.reduce((sum, row) => sum + row.energy_kwh, 0);
-  const populated = rows.filter((row) => row.energy_kwh > 0);
+  const valueFor = (row) => circuitHistoryMetric === "cost"
+    ? row.cost_dollars : row.energy_kwh;
+  const formatValue = (value, detailed = false) => circuitHistoryMetric === "cost"
+    ? money(value, detailed ? 3 : 2)
+    : `${value.toFixed(detailed ? 3 : 2)} kWh`;
+  const values = rows.map((row) => valueFor(row));
+  const total = values.reduce((sum, value) => sum + (value || 0), 0);
+  const populated = rows.filter((row) => (valueFor(row) || 0) > 0);
   $("circuit-history-label").textContent = data.period_label || "Selected period";
-  $("circuit-history-title").textContent = data.granularity === "month"
-    ? "Monthly energy use" : "Daily energy use";
-  $("circuit-history-total").textContent = `${total.toFixed(2)} kWh`;
+  $("circuit-history-title").textContent = circuitHistoryMetric === "cost"
+    ? `${data.granularity === "month" ? "Monthly" : "Daily"} variable cost`
+    : `${data.granularity === "month" ? "Monthly" : "Daily"} energy use`;
+  $("circuit-history-total").textContent = formatValue(total);
   $("circuit-history-average").textContent = rows.length
-    ? `${(total / rows.length).toFixed(2)} kWh` : "—";
+    ? formatValue(total / rows.length) : "—";
   $("circuit-history-peak").textContent = populated.length
-    ? `${Math.max(...populated.map((row) => row.energy_kwh)).toFixed(2)} kWh` : "—";
+    ? formatValue(Math.max(...populated.map((row) => valueFor(row)))) : "—";
 
   const select = $("circuit-history-period");
   const years = data.available_years || [];
@@ -901,6 +909,9 @@ function renderCircuitHistory(data) {
   select.value = selectedCircuitHistoryPeriod;
 
   svg.replaceChildren();
+  svg.setAttribute("aria-label", circuitHistoryMetric === "cost"
+    ? "Longer-term variable electricity cost for the selected circuit"
+    : "Longer-term energy use for the selected circuit");
   empty.hidden = populated.length > 0;
   svg.hidden = populated.length === 0;
   if (!populated.length) return;
@@ -910,7 +921,8 @@ function renderCircuitHistory(data) {
   const margin = { top: 16, right: 14, bottom: 38, left: 54 };
   const plotWidth = width - margin.left - margin.right;
   const plotHeight = height - margin.top - margin.bottom;
-  const maximum = Math.max(...rows.map((row) => row.energy_kwh), .1) * 1.12;
+  const minimumScale = circuitHistoryMetric === "cost" ? .01 : .1;
+  const maximum = Math.max(...values.map((value) => value || 0), minimumScale) * 1.12;
   const slotWidth = plotWidth / rows.length;
   const barWidth = Math.max(2, Math.min(slotWidth * .72, 34));
   const ns = "http://www.w3.org/2000/svg";
@@ -925,16 +937,19 @@ function renderCircuitHistory(data) {
     const y = margin.top + tick / 4 * plotHeight;
     svg.append(make("line", { x1: margin.left, y1: y, x2: width - margin.right, y2: y, class: "grid-line" }));
     const label = make("text", { x: margin.left - 9, y: y + 4, class: "axis-label", "text-anchor": "end" });
-    label.textContent = `${(maximum * (1 - tick / 4)).toFixed(1)} kWh`;
+    const tickValue = maximum * (1 - tick / 4);
+    label.textContent = circuitHistoryMetric === "cost"
+      ? money(tickValue, 2) : `${tickValue.toFixed(1)} kWh`;
     svg.append(label);
   }
 
   rows.forEach((row, index) => {
     const x = margin.left + index * slotWidth + (slotWidth - barWidth) / 2;
-    const barHeight = row.energy_kwh / maximum * plotHeight;
+    const value = valueFor(row) || 0;
+    const barHeight = value / maximum * plotHeight;
     svg.append(make("rect", {
       x, y: margin.top + plotHeight - barHeight, width: barWidth,
-      height: Math.max(row.energy_kwh > 0 ? 1 : 0, barHeight),
+      height: Math.max(value > 0 ? 1 : 0, barHeight),
       rx: Math.min(3, barWidth / 3),
       class: `history-bar${row.current ? " current" : ""}`
     }));
@@ -959,8 +974,11 @@ function renderCircuitHistory(data) {
     const tooltip = $("circuit-history-tooltip");
     tooltip.hidden = false;
     tooltip.style.left = `${(margin.left + (index + .5) * slotWidth) / width * 100}%`;
-    tooltip.style.top = `${(margin.top + plotHeight - row.energy_kwh / maximum * plotHeight) / height * 100}%`;
-    tooltip.textContent = `${row.label} · ${row.energy_kwh.toFixed(3)} kWh`;
+    const value = valueFor(row);
+    tooltip.style.top = `${(margin.top + plotHeight - (value || 0) / maximum * plotHeight) / height * 100}%`;
+    tooltip.textContent = value == null
+      ? `${row.label} · cost unavailable`
+      : `${row.label} · ${formatValue(value, true)}`;
   };
   svg.onpointerleave = () => { $("circuit-history-tooltip").hidden = true; };
 }
@@ -1030,6 +1048,17 @@ document.querySelectorAll("[data-donut-metric]").forEach((button) => {
       item.setAttribute("aria-pressed", active ? "true" : "false");
     });
     if (lastPayload) renderDonut(lastPayload);
+  });
+});
+document.querySelectorAll("[data-history-metric]").forEach((button) => {
+  button.addEventListener("click", () => {
+    circuitHistoryMetric = button.dataset.historyMetric;
+    document.querySelectorAll("[data-history-metric]").forEach((item) => {
+      const active = item === button;
+      item.classList.toggle("active", active);
+      item.setAttribute("aria-pressed", active ? "true" : "false");
+    });
+    if (lastCircuitHistory) renderCircuitHistory(lastCircuitHistory);
   });
 });
 window.addEventListener("resize", () => {

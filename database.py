@@ -506,8 +506,10 @@ class DashboardDatabase:
     self,
     circuit_id: int,
     period: str = "30d",
+    *,
+    variable_addon_cents_per_kwh: float = 7.791438,
   ) -> dict[str, Any]:
-    """Return daily or monthly energy totals for one logical circuit."""
+    """Return daily or monthly energy and variable-cost totals for a circuit."""
     now = datetime.now(timezone.utc)
     local_now = now.astimezone(CHICAGO)
     today = local_now.date()
@@ -518,7 +520,10 @@ class DashboardDatabase:
       local_start = datetime.combine(first_date, datetime.min.time(), CHICAGO)
       local_end = datetime.combine(today + timedelta(days=1), datetime.min.time(), CHICAGO)
       keys = [first_date + timedelta(days=index) for index in range(day_count)]
-      totals = {key: 0.0 for key in keys}
+      totals = {
+        key: {"energy_kwh": 0.0, "priced_energy_kwh": 0.0, "cost_dollars": 0.0}
+        for key in keys
+      }
       granularity = "day"
       label = f"Last {day_count} days"
     elif re.fullmatch(r"year:\d{4}", period):
@@ -526,7 +531,10 @@ class DashboardDatabase:
       local_start = datetime(year, 1, 1, tzinfo=CHICAGO)
       local_end = datetime(year + 1, 1, 1, tzinfo=CHICAGO)
       keys = [(year, month) for month in range(1, 13)]
-      totals = {key: 0.0 for key in keys}
+      totals = {
+        key: {"energy_kwh": 0.0, "priced_energy_kwh": 0.0, "cost_dollars": 0.0}
+        for key in keys
+      }
       granularity = "month"
       label = str(year)
     else:
@@ -539,6 +547,10 @@ class DashboardDatabase:
       if circuit_id not in metadata:
         raise ValueError("Unknown circuit")
 
+      hourly_prices, half_hour_prices, latest_price = self._stored_market_prices(
+        connection
+      )
+
       if self._table_exists(connection, "channel_usage"):
         for row in connection.execute(
           "SELECT period_start, energy_wh FROM channel_usage "
@@ -550,7 +562,20 @@ class DashboardDatabase:
             sampled_at.year, sampled_at.month
           )
           if key in totals:
-            totals[key] += float(row["energy_wh"]) / 1000
+            energy_kwh = float(row["energy_wh"]) / 1000
+            totals[key]["energy_kwh"] += energy_kwh
+            market_price = self._market_price(
+              datetime.fromisoformat(row["period_start"]),
+              hourly_prices,
+              half_hour_prices,
+            )
+            if market_price is not None:
+              totals[key]["priced_energy_kwh"] += energy_kwh
+              totals[key]["cost_dollars"] += (
+                energy_kwh
+                * (market_price + variable_addon_cents_per_kwh)
+                / 100
+              )
 
       if self._table_exists(connection, "collector_state"):
         state_row = connection.execute(
@@ -566,7 +591,22 @@ class DashboardDatabase:
               sampled_at.year, sampled_at.month
             )
             if key in totals:
-              totals[key] += float(energy[str(circuit_id)]) / 3_600_000
+              energy_kwh = float(energy[str(circuit_id)]) / 3_600_000
+              totals[key]["energy_kwh"] += energy_kwh
+              market_price = self._market_price(
+                datetime.fromisoformat(state_start),
+                hourly_prices,
+                half_hour_prices,
+              )
+              if market_price is None and latest_price is not None:
+                market_price = latest_price[1]
+              if market_price is not None:
+                totals[key]["priced_energy_kwh"] += energy_kwh
+                totals[key]["cost_dollars"] += (
+                  energy_kwh
+                  * (market_price + variable_addon_cents_per_kwh)
+                  / 100
+                )
 
       years = []
       if self._table_exists(connection, "channel_usage"):
@@ -587,10 +627,19 @@ class DashboardDatabase:
       else:
         bar_start = datetime(key[0], key[1], 1, tzinfo=CHICAGO)
         bar_label = bar_start.strftime("%b")
+      energy_kwh = totals[key]["energy_kwh"]
+      priced_energy_kwh = totals[key]["priced_energy_kwh"]
       bars.append({
         "period_start_ms": round(bar_start.timestamp() * 1000),
         "label": bar_label,
-        "energy_kwh": round(totals[key], 4),
+        "energy_kwh": round(energy_kwh, 4),
+        "cost_dollars": (
+          round(totals[key]["cost_dollars"], 6)
+          if priced_energy_kwh > 0 else (0.0 if energy_kwh == 0 else None)
+        ),
+        "priced_energy_percent": round(
+          priced_energy_kwh / energy_kwh * 100, 1
+        ) if energy_kwh else 100.0,
         "current": (
           key == today if granularity == "day"
           else key == (today.year, today.month)

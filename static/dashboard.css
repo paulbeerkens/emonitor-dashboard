@@ -131,6 +131,7 @@ select { min-width: 240px; padding: 10px 36px 10px 12px; border: 1px solid var(-
 #power-chart[hidden], .empty-state[hidden] { display: none; }
 .history-divider { height: 1px; margin: 24px -28px 28px; background: var(--line); }
 .history-heading { align-items: end; }
+.history-controls { display: flex; align-items: end; gap: 14px; }
 .history-stats { margin-top: 18px; }
 .history-chart-wrap { position: relative; height: 310px; margin-top: 4px; }
 #circuit-history-chart { display: block; width: 100%; height: 100%; overflow: visible; }
@@ -277,6 +278,8 @@ footer { padding: 24px 4px 0; color: #6c806f; font-size: .72rem; text-align: cen
   .chart-stats { margin-left: 0; gap: 12px; flex-wrap: wrap; }
   .chart-wrap { height: 320px; }
   .history-divider { margin-right: -16px; margin-left: -16px; }
+  .history-controls { width: 100%; align-items: stretch; flex-direction: column-reverse; }
+  .history-controls .metric-toggle { align-self: flex-start; }
   .history-chart-wrap { height: 275px; }
   .burn-chart-wrap { height: 225px; }
   .price-day-legend { justify-content: flex-start; }

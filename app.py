@@ -89,7 +89,11 @@ def create_app(
     if circuit_id is None:
       return jsonify({"error": "circuit_id is required"}), 400
     try:
-      return jsonify(database.circuit_history(circuit_id, period))
+      return jsonify(database.circuit_history(
+        circuit_id,
+        period,
+        variable_addon_cents_per_kwh=variable_addon,
+      ))
     except ValueError as error:
       return jsonify({"error": str(error)}), 400
     except (FileNotFoundError, sqlite3.DatabaseError) as error:
