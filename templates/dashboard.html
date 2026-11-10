@@ -77,51 +77,38 @@
         </div>
       </section>
 
-      <section class="summary-grid" aria-label="Current home energy summary">
-        <article class="summary-card main-power">
+      <section class="summary-hero" aria-label="Current home energy summary">
+        <article class="summary-primary main-power">
           <p class="card-label">Total usage</p>
           <p class="big-number"><span id="main-power">—</span><small> W</small></p>
           <p class="card-note">Combined Main Power</p>
         </article>
-        <article class="summary-card solar-power">
-          <p class="card-label">Solar production</p>
-          <p class="big-number"><span id="solar-power">—</span><small> W</small></p>
-          <p class="card-note">Combined Solar Panels</p>
-        </article>
-        <article class="summary-card updated-card">
-          <p class="card-label">Latest reading</p>
-          <p class="updated-time" id="updated-time">Waiting for data</p>
-          <p class="card-note">Refreshes every 15 seconds</p>
-        </article>
-        <article class="summary-card pi-card">
-          <div class="pi-card-heading">
-            <p class="card-label">Raspberry Pi health</p>
-            <span class="pi-mark">Pi 5</span>
-          </div>
-          <dl class="pi-metrics">
-            <div>
-              <dt>CPU temp</dt>
-              <dd id="cpu-temperature">—</dd>
+        <div class="summary-facts">
+          <article class="solar-power">
+            <p class="card-label">Solar production</p>
+            <p class="big-number"><span id="solar-power">—</span><small> W</small></p>
+            <p class="card-note">Combined Solar Panels</p>
+          </article>
+          <article class="updated-card">
+            <p class="card-label">Latest reading</p>
+            <p class="updated-time" id="updated-time">Waiting for data</p>
+            <p class="card-note">Refreshes every 15 seconds</p>
+          </article>
+          <article class="pi-card">
+            <div class="pi-card-heading">
+              <p class="card-label">Raspberry Pi health</p>
+              <span class="pi-mark">Pi 5</span>
             </div>
-            <div>
-              <dt>CPU use</dt>
-              <dd id="cpu-utilization">—</dd>
-            </div>
-            <div>
-              <dt>Memory</dt>
-              <dd id="memory-use">—</dd>
-            </div>
-            <div>
-              <dt>Disk free</dt>
-              <dd id="disk-free">—</dd>
-            </div>
-            <div>
-              <dt>Fan</dt>
-              <dd id="fan-speed">—</dd>
-            </div>
-          </dl>
-          <p class="card-note" id="pi-note">Available when running on Linux</p>
-        </article>
+            <dl class="pi-metrics">
+              <div><dt>CPU temp</dt><dd id="cpu-temperature">—</dd></div>
+              <div><dt>CPU use</dt><dd id="cpu-utilization">—</dd></div>
+              <div><dt>Memory</dt><dd id="memory-use">—</dd></div>
+              <div><dt>Disk free</dt><dd id="disk-free">—</dd></div>
+              <div><dt>Fan</dt><dd id="fan-speed">—</dd></div>
+            </dl>
+            <p class="card-note" id="pi-note">Available when running on Linux</p>
+          </article>
+        </div>
       </section>
 
       <section class="panel top-panel">
@@ -201,7 +188,13 @@
             <p class="eyebrow">Past 24 hours</p>
             <h2>Where the circuits used energy</h2>
           </div>
-          <p>Every named branch circuit is shown. Select a slice or legend item to open that circuit in the 15-second graph.</p>
+          <div class="donut-heading-actions">
+            <div class="metric-toggle" role="group" aria-label="Show circuit share as energy or cost">
+              <button type="button" class="active" data-donut-metric="energy" aria-pressed="true">kWh</button>
+              <button type="button" data-donut-metric="cost" aria-pressed="false">Dollars</button>
+            </div>
+            <p>Every named branch circuit is shown. Select one to inspect its power history.</p>
+          </div>
         </div>
         <div class="donut-layout">
           <div class="donut-wrap">
@@ -215,7 +208,7 @@
       <section class="panel chart-panel">
         <div class="chart-heading">
           <div>
-            <p class="eyebrow">15-second detail</p>
+            <p class="eyebrow">Circuit power history</p>
             <h2><span id="chart-title">Circuit</span> · last 24 hours</h2>
           </div>
           <label class="circuit-picker">
@@ -234,6 +227,33 @@
           <div class="empty-state" id="empty-state" hidden>
             <strong>Detailed history is not available yet.</strong>
             <span>Restart the updated collector and this chart will fill as 15-second readings arrive.</span>
+          </div>
+        </div>
+        <div class="history-divider"></div>
+        <div class="chart-heading history-heading">
+          <div>
+            <p class="eyebrow" id="circuit-history-label">Last 30 days</p>
+            <h2 id="circuit-history-title">Daily energy use</h2>
+          </div>
+          <label class="circuit-picker">
+            <span>Time period</span>
+            <select id="circuit-history-period">
+              <option value="30d">Last 30 days</option>
+              <option value="90d">Last 90 days</option>
+            </select>
+          </label>
+        </div>
+        <div class="chart-stats history-stats">
+          <span>Total <strong id="circuit-history-total">—</strong></span>
+          <span>Average <strong id="circuit-history-average">—</strong></span>
+          <span>Peak <strong id="circuit-history-peak">—</strong></span>
+        </div>
+        <div class="history-chart-wrap">
+          <svg id="circuit-history-chart" role="img" aria-label="Longer-term energy use for the selected circuit"></svg>
+          <div class="tooltip" id="circuit-history-tooltip" hidden></div>
+          <div class="empty-state" id="circuit-history-empty" hidden>
+            <strong>Longer-term history is not available yet.</strong>
+            <span>This graph will build as half-hour circuit summaries are collected.</span>
           </div>
         </div>
       </section>

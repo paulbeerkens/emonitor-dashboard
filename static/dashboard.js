@@ -2,9 +2,12 @@ const REFRESH_MS = 15_000;
 let selectedCircuitId = null;
 let selectedUsagePeriod = "24h";
 let selectedSolarPeriod = "14d";
+let selectedCircuitHistoryPeriod = "30d";
+let donutMetric = "energy";
 let solarHistoryLive = true;
 let lastPayload = null;
 let lastSolarHistory = null;
+let lastCircuitHistory = null;
 
 const number = new Intl.NumberFormat("en-US", { maximumFractionDigits: 0 });
 const $ = (id) => document.getElementById(id);
@@ -689,16 +692,23 @@ function donutPath(centerX, centerY, outerRadius, innerRadius, startAngle, endAn
 function renderDonut(data) {
   const svg = $("circuit-donut");
   const legend = $("donut-legend");
-  const rows = (data.last_24_hours?.circuit_breakdown || []).filter((row) => row.energy_kwh > 0);
+  const valueFor = (row) => donutMetric === "cost" ? row.cost_dollars : row.energy_kwh;
+  const formatValue = (value) => donutMetric === "cost"
+    ? money(value, 2) : `${value.toFixed(2)} kWh`;
+  const rows = (data.last_24_hours?.circuit_breakdown || []).filter((row) => valueFor(row) > 0);
   svg.replaceChildren(); legend.replaceChildren();
+  svg.setAttribute("aria-label", donutMetric === "cost"
+    ? "Variable electricity cost share by circuit over the last 24 hours"
+    : "Energy share by circuit over the last 24 hours");
   if (!rows.length) return;
-  const total = rows.reduce((sum, row) => sum + row.energy_kwh, 0);
+  const total = rows.reduce((sum, row) => sum + valueFor(row), 0);
   const ns = "http://www.w3.org/2000/svg";
   const palette = ["#68bd32", "#23a8d8", "#f5a623", "#ec6b2d", "#8b67c8", "#39b9a5", "#d94f70", "#9fbe2f", "#4c82d1", "#dc8c2f"];
   svg.setAttribute("viewBox", "0 0 240 240");
   let angle = 0;
   rows.forEach((row, index) => {
-    const sweep = row.energy_kwh / total * 360;
+    const value = valueFor(row);
+    const sweep = value / total * 360;
     const color = index < palette.length
       ? palette[index]
       : `hsl(${Math.round(index * 137.508) % 360} 62% 48%)`;
@@ -707,12 +717,12 @@ function renderDonut(data) {
     path.setAttribute("fill", color);
     path.setAttribute("class", "donut-slice");
     path.setAttribute("tabindex", "0");
-    path.setAttribute("aria-label", `${row.channel_name}, ${row.energy_kwh.toFixed(2)} kilowatt-hours`);
+    path.setAttribute("aria-label", `${row.channel_name}, ${formatValue(value)}`);
     const showTooltip = () => {
       const tooltip = $("donut-tooltip");
       tooltip.hidden = false;
       tooltip.style.left = "50%"; tooltip.style.top = "50%";
-      tooltip.textContent = `${row.channel_name} · ${row.energy_kwh.toFixed(2)} kWh · ${(row.energy_kwh / total * 100).toFixed(1)}%`;
+      tooltip.textContent = `${row.channel_name} · ${formatValue(value)} · ${(value / total * 100).toFixed(1)}%`;
     };
     path.addEventListener("pointerenter", showTooltip);
     path.addEventListener("focus", showTooltip);
@@ -725,7 +735,7 @@ function renderDonut(data) {
     const button = document.createElement("button");
     button.type = "button";
     button.className = "donut-legend-item";
-    button.innerHTML = `<span class="donut-swatch" style="background:${color}"></span><span class="donut-name"></span><strong>${row.energy_kwh.toFixed(2)} kWh</strong><small>${(row.energy_kwh / total * 100).toFixed(1)}%</small>`;
+    button.innerHTML = `<span class="donut-swatch" style="background:${color}"></span><span class="donut-name"></span><strong>${formatValue(value)}</strong><small>${(value / total * 100).toFixed(1)}%</small>`;
     button.querySelector(".donut-name").textContent = row.channel_name;
     button.addEventListener("click", () => selectCircuit(row.channel_id));
     legend.append(button);
@@ -733,11 +743,11 @@ function renderDonut(data) {
   const totalText = document.createElementNS(ns, "text");
   totalText.setAttribute("x", "120"); totalText.setAttribute("y", "114");
   totalText.setAttribute("text-anchor", "middle"); totalText.setAttribute("class", "donut-total");
-  totalText.textContent = total.toFixed(1);
+  totalText.textContent = donutMetric === "cost" ? money(total, 2) : total.toFixed(1);
   const unitText = document.createElementNS(ns, "text");
   unitText.setAttribute("x", "120"); unitText.setAttribute("y", "136");
   unitText.setAttribute("text-anchor", "middle"); unitText.setAttribute("class", "donut-unit");
-  unitText.textContent = "branch kWh";
+  unitText.textContent = donutMetric === "cost" ? "variable cost" : "branch kWh";
   svg.append(totalText, unitText);
 }
 
@@ -856,6 +866,120 @@ function renderChart(data) {
   };
 }
 
+function renderCircuitHistory(data) {
+  lastCircuitHistory = data;
+  const svg = $("circuit-history-chart");
+  const empty = $("circuit-history-empty");
+  const rows = data.bars || [];
+  const total = rows.reduce((sum, row) => sum + row.energy_kwh, 0);
+  const populated = rows.filter((row) => row.energy_kwh > 0);
+  $("circuit-history-label").textContent = data.period_label || "Selected period";
+  $("circuit-history-title").textContent = data.granularity === "month"
+    ? "Monthly energy use" : "Daily energy use";
+  $("circuit-history-total").textContent = `${total.toFixed(2)} kWh`;
+  $("circuit-history-average").textContent = rows.length
+    ? `${(total / rows.length).toFixed(2)} kWh` : "—";
+  $("circuit-history-peak").textContent = populated.length
+    ? `${Math.max(...populated.map((row) => row.energy_kwh)).toFixed(2)} kWh` : "—";
+
+  const select = $("circuit-history-period");
+  const years = data.available_years || [];
+  const existingYears = Array.from(select.options)
+    .filter((option) => option.value.startsWith("year:"))
+    .map((option) => Number(option.value.slice(5)));
+  if (existingYears.join(",") !== years.join(",")) {
+    Array.from(select.options)
+      .filter((option) => option.value.startsWith("year:"))
+      .forEach((option) => option.remove());
+    years.forEach((year) => {
+      const option = document.createElement("option");
+      option.value = `year:${year}`;
+      option.textContent = `${year} · monthly bars`;
+      select.append(option);
+    });
+  }
+  select.value = selectedCircuitHistoryPeriod;
+
+  svg.replaceChildren();
+  empty.hidden = populated.length > 0;
+  svg.hidden = populated.length === 0;
+  if (!populated.length) return;
+
+  const width = Math.max(svg.clientWidth, 400);
+  const height = Math.max(svg.clientHeight, 260);
+  const margin = { top: 16, right: 14, bottom: 38, left: 54 };
+  const plotWidth = width - margin.left - margin.right;
+  const plotHeight = height - margin.top - margin.bottom;
+  const maximum = Math.max(...rows.map((row) => row.energy_kwh), .1) * 1.12;
+  const slotWidth = plotWidth / rows.length;
+  const barWidth = Math.max(2, Math.min(slotWidth * .72, 34));
+  const ns = "http://www.w3.org/2000/svg";
+  const make = (name, attributes = {}) => {
+    const node = document.createElementNS(ns, name);
+    Object.entries(attributes).forEach(([key, value]) => node.setAttribute(key, value));
+    return node;
+  };
+  svg.setAttribute("viewBox", `0 0 ${width} ${height}`);
+
+  for (let tick = 0; tick <= 4; tick += 1) {
+    const y = margin.top + tick / 4 * plotHeight;
+    svg.append(make("line", { x1: margin.left, y1: y, x2: width - margin.right, y2: y, class: "grid-line" }));
+    const label = make("text", { x: margin.left - 9, y: y + 4, class: "axis-label", "text-anchor": "end" });
+    label.textContent = `${(maximum * (1 - tick / 4)).toFixed(1)} kWh`;
+    svg.append(label);
+  }
+
+  rows.forEach((row, index) => {
+    const x = margin.left + index * slotWidth + (slotWidth - barWidth) / 2;
+    const barHeight = row.energy_kwh / maximum * plotHeight;
+    svg.append(make("rect", {
+      x, y: margin.top + plotHeight - barHeight, width: barWidth,
+      height: Math.max(row.energy_kwh > 0 ? 1 : 0, barHeight),
+      rx: Math.min(3, barWidth / 3),
+      class: `history-bar${row.current ? " current" : ""}`
+    }));
+  });
+
+  const labelStep = data.granularity === "month" ? 1 : Math.ceil(rows.length / 7);
+  rows.forEach((row, index) => {
+    if (index % labelStep && index !== rows.length - 1) return;
+    const label = make("text", {
+      x: margin.left + (index + .5) * slotWidth, y: height - 10,
+      class: "axis-label", "text-anchor": "middle"
+    });
+    label.textContent = row.label;
+    svg.append(label);
+  });
+
+  svg.onpointermove = (event) => {
+    const rect = svg.getBoundingClientRect();
+    const x = (event.clientX - rect.left) / rect.width * width;
+    const index = Math.max(0, Math.min(rows.length - 1, Math.floor((x - margin.left) / slotWidth)));
+    const row = rows[index];
+    const tooltip = $("circuit-history-tooltip");
+    tooltip.hidden = false;
+    tooltip.style.left = `${(margin.left + (index + .5) * slotWidth) / width * 100}%`;
+    tooltip.style.top = `${(margin.top + plotHeight - row.energy_kwh / maximum * plotHeight) / height * 100}%`;
+    tooltip.textContent = `${row.label} · ${row.energy_kwh.toFixed(3)} kWh`;
+  };
+  svg.onpointerleave = () => { $("circuit-history-tooltip").hidden = true; };
+}
+
+async function loadCircuitHistory() {
+  if (selectedCircuitId == null) return;
+  try {
+    const response = await fetch(
+      `/api/circuit-history?circuit_id=${selectedCircuitId}&period=${encodeURIComponent(selectedCircuitHistoryPeriod)}`,
+      { cache: "no-store" }
+    );
+    if (!response.ok) throw new Error((await response.json()).error || "Circuit history request failed");
+    renderCircuitHistory(await response.json());
+  } catch (error) {
+    $("circuit-history-empty").hidden = false;
+    $("circuit-history-chart").hidden = true;
+  }
+}
+
 async function loadDashboard() {
   const query = selectedCircuitId == null ? "" : `?circuit_id=${selectedCircuitId}`;
   try {
@@ -872,6 +996,7 @@ async function loadDashboard() {
     renderComEdPrices(data);
     renderDonut(data);
     renderSolar(data);
+    loadCircuitHistory();
   } catch (error) {
     setStatus(null, error);
     $("updated-time").textContent = error.message;
@@ -892,6 +1017,21 @@ $("solar-period").addEventListener("change", (event) => {
   selectedSolarPeriod = event.target.value;
   loadSolarHistory();
 });
+$("circuit-history-period").addEventListener("change", (event) => {
+  selectedCircuitHistoryPeriod = event.target.value;
+  loadCircuitHistory();
+});
+document.querySelectorAll("[data-donut-metric]").forEach((button) => {
+  button.addEventListener("click", () => {
+    donutMetric = button.dataset.donutMetric;
+    document.querySelectorAll("[data-donut-metric]").forEach((item) => {
+      const active = item === button;
+      item.classList.toggle("active", active);
+      item.setAttribute("aria-pressed", active ? "true" : "false");
+    });
+    if (lastPayload) renderDonut(lastPayload);
+  });
+});
 window.addEventListener("resize", () => {
   if (lastPayload) {
     renderChart(lastPayload);
@@ -901,6 +1041,7 @@ window.addEventListener("resize", () => {
     renderSolar(lastPayload);
   }
   if (lastSolarHistory) renderSolarHistory(lastSolarHistory);
+  if (lastCircuitHistory) renderCircuitHistory(lastCircuitHistory);
 });
 loadDashboard();
 loadCircuitUsage();

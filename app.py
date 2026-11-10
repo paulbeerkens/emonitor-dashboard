@@ -82,6 +82,20 @@ def create_app(
       app.logger.warning("Could not read solar history: %s", error)
       return jsonify({"error": str(error)}), 503
 
+  @app.get("/api/circuit-history")
+  def circuit_history():
+    circuit_id = request.args.get("circuit_id", type=int)
+    period = request.args.get("period", "30d")
+    if circuit_id is None:
+      return jsonify({"error": "circuit_id is required"}), 400
+    try:
+      return jsonify(database.circuit_history(circuit_id, period))
+    except ValueError as error:
+      return jsonify({"error": str(error)}), 400
+    except (FileNotFoundError, sqlite3.DatabaseError) as error:
+      app.logger.warning("Could not read circuit history: %s", error)
+      return jsonify({"error": str(error)}), 503
+
   return app
 
 

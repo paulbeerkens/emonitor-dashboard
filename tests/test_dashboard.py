@@ -209,6 +209,26 @@ def test_api_returns_dashboard_payload(tmp_path):
   invalid_response = client.get("/api/circuit-usage?period=forever")
   assert invalid_response.status_code == 400
 
+  history_response = client.get("/api/circuit-history?circuit_id=3&period=30d")
+  assert history_response.status_code == 200
+  circuit_history = history_response.get_json()
+  assert circuit_history["circuit_name"] == "Kitchen"
+  assert circuit_history["granularity"] == "day"
+  assert len(circuit_history["bars"]) == 30
+  assert sum(row["energy_kwh"] for row in circuit_history["bars"]) == pytest.approx(.06)
+
+  current_year = datetime.now(timezone.utc).year
+  year_response = client.get(
+    f"/api/circuit-history?circuit_id=5&period=year:{current_year}"
+  )
+  assert year_response.status_code == 200
+  assert year_response.get_json()["granularity"] == "month"
+  assert len(year_response.get_json()["bars"]) == 12
+  assert client.get("/api/circuit-history?period=30d").status_code == 400
+  assert client.get(
+    "/api/circuit-history?circuit_id=3&period=forever"
+  ).status_code == 400
+
   solar_response = client.get("/api/solar-history?period=14d")
   assert solar_response.status_code == 200
   solar_history = solar_response.get_json()

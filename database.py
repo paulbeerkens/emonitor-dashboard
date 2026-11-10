@@ -502,6 +502,111 @@ class DashboardDatabase:
         "available_months": self._available_months(connection),
       }
 
+  def circuit_history(
+    self,
+    circuit_id: int,
+    period: str = "30d",
+  ) -> dict[str, Any]:
+    """Return daily or monthly energy totals for one logical circuit."""
+    now = datetime.now(timezone.utc)
+    local_now = now.astimezone(CHICAGO)
+    today = local_now.date()
+
+    if period in {"30d", "90d"}:
+      day_count = 30 if period == "30d" else 90
+      first_date = today - timedelta(days=day_count - 1)
+      local_start = datetime.combine(first_date, datetime.min.time(), CHICAGO)
+      local_end = datetime.combine(today + timedelta(days=1), datetime.min.time(), CHICAGO)
+      keys = [first_date + timedelta(days=index) for index in range(day_count)]
+      totals = {key: 0.0 for key in keys}
+      granularity = "day"
+      label = f"Last {day_count} days"
+    elif re.fullmatch(r"year:\d{4}", period):
+      year = int(period.split(":", 1)[1])
+      local_start = datetime(year, 1, 1, tzinfo=CHICAGO)
+      local_end = datetime(year + 1, 1, 1, tzinfo=CHICAGO)
+      keys = [(year, month) for month in range(1, 13)]
+      totals = {key: 0.0 for key in keys}
+      granularity = "month"
+      label = str(year)
+    else:
+      raise ValueError("Unknown circuit-history period")
+
+    start = local_start.astimezone(timezone.utc)
+    end = local_end.astimezone(timezone.utc)
+    with self._connect() as connection:
+      metadata = self._metadata(connection)
+      if circuit_id not in metadata:
+        raise ValueError("Unknown circuit")
+
+      if self._table_exists(connection, "channel_usage"):
+        for row in connection.execute(
+          "SELECT period_start, energy_wh FROM channel_usage "
+          "WHERE id=? AND period_end>? AND period_start<? ORDER BY period_start",
+          (circuit_id, start.isoformat(), end.isoformat()),
+        ):
+          sampled_at = datetime.fromisoformat(row["period_start"]).astimezone(CHICAGO)
+          key = sampled_at.date() if granularity == "day" else (
+            sampled_at.year, sampled_at.month
+          )
+          if key in totals:
+            totals[key] += float(row["energy_wh"]) / 1000
+
+      if self._table_exists(connection, "collector_state"):
+        state_row = connection.execute(
+          "SELECT state_json FROM collector_state WHERE id=1"
+        ).fetchone()
+        if state_row:
+          state = json.loads(state_row["state_json"])
+          state_start = state.get("period_start")
+          energy = state.get("energy_watt_seconds", {})
+          if state_start and str(circuit_id) in energy:
+            sampled_at = datetime.fromisoformat(state_start).astimezone(CHICAGO)
+            key = sampled_at.date() if granularity == "day" else (
+              sampled_at.year, sampled_at.month
+            )
+            if key in totals:
+              totals[key] += float(energy[str(circuit_id)]) / 3_600_000
+
+      years = []
+      if self._table_exists(connection, "channel_usage"):
+        years = [
+          int(row["year"])
+          for row in connection.execute(
+            "SELECT DISTINCT substr(period_start, 1, 4) AS year "
+            "FROM channel_usage ORDER BY year DESC"
+          )
+          if row["year"] and row["year"].isdigit()
+        ]
+
+    bars = []
+    for key in keys:
+      if granularity == "day":
+        bar_start = datetime.combine(key, datetime.min.time(), CHICAGO)
+        bar_label = key.strftime("%b %-d")
+      else:
+        bar_start = datetime(key[0], key[1], 1, tzinfo=CHICAGO)
+        bar_label = bar_start.strftime("%b")
+      bars.append({
+        "period_start_ms": round(bar_start.timestamp() * 1000),
+        "label": bar_label,
+        "energy_kwh": round(totals[key], 4),
+        "current": (
+          key == today if granularity == "day"
+          else key == (today.year, today.month)
+        ),
+      })
+
+    return {
+      "circuit_id": circuit_id,
+      "circuit_name": metadata[circuit_id],
+      "period": period,
+      "period_label": label,
+      "granularity": granularity,
+      "bars": bars,
+      "available_years": years,
+    }
+
   def solar_history(self, period: str = "14d") -> dict[str, Any]:
     """Return daily or monthly solar-production bars for a selected period."""
     now = datetime.now(timezone.utc)
